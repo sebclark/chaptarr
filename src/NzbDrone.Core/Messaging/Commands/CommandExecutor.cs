@@ -12,6 +12,36 @@ namespace NzbDrone.Core.Messaging.Commands
                                    IHandle<ApplicationShutdownRequested>
     {
         private const int DefaultThreadLimit = 3;
+        private const string CommandTimeoutEnvVar = "CHAPTARR_COMMAND_TIMEOUT_MINUTES";
+
+        /// <summary>
+        /// Cancel a command that has run longer than this many minutes. Disabled by
+        /// default (0) so behaviour is unchanged unless opted into.
+        ///
+        /// Without it a wedged command holds its DiskAccessGroup forever, and because
+        /// CommandQueue treats different groups as mutually exclusive, that blocks every
+        /// other disk command indefinitely - one stuck RetryFailedImport ("downloadImport")
+        /// will stall RescanFolders/RefreshUnmappedFiles ("default") no matter how high
+        /// CHAPTARR_DISK_ACCESS_LIMIT is set.
+        ///
+        /// Note this relies on cooperative cancellation: it frees the queue slot, but a
+        /// handler that never checks its CancellationToken will keep running until it
+        /// finishes on its own.
+        /// </summary>
+        private static int CommandTimeoutMinutes
+        {
+            get
+            {
+                var value = Environment.GetEnvironmentVariable(CommandTimeoutEnvVar);
+
+                if (!string.IsNullOrWhiteSpace(value) && int.TryParse(value, out var parsed) && parsed > 0)
+                {
+                    return parsed;
+                }
+
+                return 0;
+            }
+        }
         private const string ThreadLimitEnvVar = "CHAPTARR_COMMAND_THREADS";
 
         /// <summary>
@@ -111,6 +141,10 @@ namespace NzbDrone.Core.Messaging.Commands
 
                 // Start a lightweight heartbeat to update LastProgressAt while the command runs
                 heartbeatCancellation = new CancellationTokenSource();
+                var commandStartedAt = DateTime.UtcNow;
+                var timeoutMinutes = CommandTimeoutMinutes;
+                var timeoutCts = cancellationTokenSource;
+
                 heartbeatThread = new Thread(() =>
                 {
                     try
@@ -118,6 +152,28 @@ namespace NzbDrone.Core.Messaging.Commands
                         while (!heartbeatCancellation.IsCancellationRequested)
                         {
                             _commandQueueManager.TouchProgress(commandModel);
+
+                            // The heartbeat already runs on a timer, so enforce the timeout
+                            // here rather than adding another thread.
+                            if (timeoutMinutes > 0 &&
+                                !timeoutCts.IsCancellationRequested &&
+                                DateTime.UtcNow - commandStartedAt > TimeSpan.FromMinutes(timeoutMinutes))
+                            {
+                                _logger.Warn(
+                                    "Command {0} (id {1}) exceeded {2} minutes; cancelling so it stops holding disk-access group '{3}'",
+                                    commandModel.Name, commandModel.Id, timeoutMinutes,
+                                    commandModel.Body?.DiskAccessGroup ?? "default");
+
+                                try
+                                {
+                                    timeoutCts.Cancel();
+                                }
+                                catch
+                                {
+                                    // best effort
+                                }
+                            }
+
                             Thread.Sleep(TimeSpan.FromSeconds(30));
                         }
                     }
