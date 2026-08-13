@@ -127,7 +127,11 @@ namespace NzbDrone.Core.Datastore
                 {
                     using (var cmd = sqlite.CreateCommand())
                     {
-                        cmd.CommandText = @"PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000;";
+                        // cache_size/mmap_size/temp_store are per-connection and were left at
+                        // SQLite's defaults - a 2MB page cache against a multi-GB library database,
+                        // no memory-mapped reads, and temp B-trees (sorts/joins) spilling to disk.
+                        // Negative cache_size is in KiB, so -262144 is a 256MB cache.
+                        cmd.CommandText = @"PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000; PRAGMA cache_size=-262144; PRAGMA mmap_size=268435456; PRAGMA temp_store=MEMORY;";
                         try { cmd.ExecuteNonQuery(); } catch { /* best effort */ }
                     }
                 }
