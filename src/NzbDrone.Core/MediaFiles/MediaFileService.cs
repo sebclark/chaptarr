@@ -499,6 +499,53 @@ namespace NzbDrone.Core.MediaFiles
             }
 
             PurgeIngestQueueUnderAuthorPaths(message.Author);
+
+            if (!message.DeleteFiles)
+            {
+                return;
+            }
+
+            // The author was deleted along with its files on disk. The edition cascade
+            // only unlinks BookFile rows (EditionId = 0) and the missing-file sweep
+            // deliberately preserves unavailable rows, so without cleanup here the
+            // orphaned rows survive as unmapped files and background discovery can
+            // recreate the explicitly deleted author from them.
+            var retainedIds = message.RetainedBookFileIds ?? Array.Empty<int>();
+
+            var authorPaths = new[]
+                {
+                    message.Author.Path,
+                    message.Author.AudiobookPath,
+                    message.Author.EbookPath
+                }
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Where(path =>
+                {
+                    if (IsUnsafeAuthorPurgePath(path))
+                    {
+                        _logger.Warn("Refusing to delete book file rows under unsafe author path '{0}' for deleted author '{1}'", path, message.Author.Name);
+                        return false;
+                    }
+
+                    return true;
+                })
+                .ToList();
+
+            var orphanedFiles = authorPaths
+                .SelectMany(path => _mediaFileRepository.GetFilesWithBasePath(path))
+                .Concat(_mediaFileRepository.GetFilesByAuthor(message.Author.Id))
+                .Where(file => file != null)
+                .GroupBy(file => file.Id > 0 ? $"id:{file.Id}" : $"path:{file.Path}", StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.First())
+                .Where(file => !retainedIds.Contains(file.Id))
+                .ToList();
+
+            if (orphanedFiles.Any())
+            {
+                _logger.Info("Deleting {0} book file row(s) for deleted author '{1}' so discovery cannot recreate it", orphanedFiles.Count, message.Author.Name);
+                DeleteMany(orphanedFiles, DeleteMediaFileReason.Manual);
+            }
         }
 
         public void HandleAsync(ModelEvent<RootFolder> message)
