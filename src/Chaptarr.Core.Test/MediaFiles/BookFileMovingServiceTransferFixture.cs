@@ -160,6 +160,19 @@ namespace Chaptarr.Core.Test.MediaFiles
             }
         }
 
+        private class AuthorPathBuilderProxy : DispatchProxy
+        {
+            protected override object Invoke(MethodInfo targetMethod, object[] args)
+            {
+                if (targetMethod?.Name == nameof(IBuildAuthorPaths.BuildPathForQuality))
+                {
+                    return AuthorFolder;
+                }
+
+                throw new NotImplementedException($"Test proxy does not implement {typeof(IBuildAuthorPaths).Name}.{targetMethod?.Name}");
+            }
+        }
+
         private class RootFolderWatchingServiceProxy : DispatchProxy
         {
             protected override object Invoke(MethodInfo targetMethod, object[] args)
@@ -238,7 +251,7 @@ namespace Chaptarr.Core.Test.MediaFiles
                 DispatchProxy.Create<IEditionService, ThrowingProxy<IEditionService>>(),
                 updateBookFileService,
                 fileNameBuilder,
-                DispatchProxy.Create<IBuildAuthorPaths, ThrowingProxy<IBuildAuthorPaths>>(),
+                DispatchProxy.Create<IBuildAuthorPaths, AuthorPathBuilderProxy>(),
                 DispatchProxy.Create<INamingConfigService, NamingConfigServiceProxy>(),
                 DispatchProxy.Create<IEbookColocationPlanner, NonColocatingPlannerProxy>(),
                 diskTransferService,
