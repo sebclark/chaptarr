@@ -24,6 +24,24 @@ namespace NzbDrone.Core.Books
 
         public void ReplaceAliases(string entityType, int entityId, string scope, IEnumerable<ProviderAlias> aliases)
         {
+            for (var attempt = 0; ; attempt++)
+            {
+                try
+                {
+                    ReplaceAliasesInternal(entityType, entityId, scope, aliases);
+                    return;
+                }
+                catch (Exception ex) when (attempt == 0 && ex.Message.Contains("IX_ProviderAliasIndex_Unique"))
+                {
+                    // A concurrent writer replaced the same alias set between our
+                    // DELETE snapshot and INSERT. Retry once - the second DELETE
+                    // sees the winner's committed rows and replaces them cleanly.
+                }
+            }
+        }
+
+        private void ReplaceAliasesInternal(string entityType, int entityId, string scope, IEnumerable<ProviderAlias> aliases)
+        {
             using (var conn = _database.OpenConnection())
             using (var transaction = conn.BeginTransaction(IsolationLevel.ReadCommitted))
             {
