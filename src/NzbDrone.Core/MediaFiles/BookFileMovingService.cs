@@ -446,6 +446,29 @@ namespace NzbDrone.Core.MediaFiles
                 throw BuildFolderWriteAccessException(destinationFilePath, destinationFolder);
             }
 
+            if (_diskProvider.FileExists(destinationFilePath))
+            {
+                // The destination already exists on disk but was not registered as a
+                // BookFile (scan gap or identity mismatch). Failing here strands the
+                // completed download at ImportBlocked. If the existing file is
+                // identical (by size), adopt it as the import result; otherwise the
+                // user explicitly grabbed this release, so recycle the unregistered
+                // file and import over it.
+                var existingSize = _diskProvider.GetFileSize(destinationFilePath);
+                var sourceSize = _diskProvider.GetFileSize(bookFilePath);
+
+                if (existingSize == sourceSize)
+                {
+                    _logger.Info("Destination {0} already exists and matches the downloaded file ({1} bytes); adopting the existing file instead of transferring", destinationFilePath, existingSize);
+                    bookFile.Path = destinationFilePath;
+                    _updateBookFileService.ChangeFileDateForFile(bookFile, author, book);
+                    return bookFile;
+                }
+
+                _logger.Info("Destination {0} already exists but differs from the downloaded file ({1} vs {2} bytes); recycling the unregistered file before import", destinationFilePath, existingSize, sourceSize);
+                _recycleBinProvider.DeleteFile(destinationFilePath);
+            }
+
             _rootFolderWatchingService.ReportFileSystemChangeBeginning(bookFilePath, destinationFilePath);
             var actualTransferMode = _diskTransferService.TransferFile(bookFilePath, destinationFilePath, mode);
 
