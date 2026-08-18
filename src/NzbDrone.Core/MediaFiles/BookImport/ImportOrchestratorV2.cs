@@ -2054,7 +2054,10 @@ namespace NzbDrone.Core.MediaFiles.BookImport
         Task<BookImportFileResult> ImportExistingFileAsync(string path, int bookId, int? editionId, string quality, Dictionary<string, List<string>> tags);
         Task<BookImportFileResult> ImportExistingFileAsync(string path, int bookId, int? editionId, string quality, Dictionary<string, List<string>> tags, int? durationSeconds);
         Task<BookImportFileResult> ImportExistingFileAsync(string path, int bookId, int? editionId, string quality, Dictionary<string, List<string>> tags, int? durationSeconds, MatchProvenance provenance);
-        Task<BookImportFileResult> ImportExistingFileAsync(DiscoveredFileWithMetadata file, int bookId, int? editionId, string quality, MatchProvenance provenance);
+
+        // publishAddedEvent=false lets a bulk caller suppress the per-file
+        // BookFileAddedEvent and publish one BookFilesAddedEvent for the batch.
+        Task<BookImportFileResult> ImportExistingFileAsync(DiscoveredFileWithMetadata file, int bookId, int? editionId, string quality, MatchProvenance provenance, bool publishAddedEvent = true);
 
         /// <summary>
         /// Batch inventory apply for files already in a library root. No disk mutation or transfer.

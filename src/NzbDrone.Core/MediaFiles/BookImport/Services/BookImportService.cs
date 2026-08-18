@@ -276,7 +276,8 @@ namespace NzbDrone.Core.MediaFiles.BookImport.Services
             int bookId,
             int? editionId,
             string quality,
-            MatchProvenance provenance)
+            MatchProvenance provenance,
+            bool publishAddedEvent = true)
         {
             var path = file?.Path;
             var tags = file?.AllTags;
@@ -368,7 +369,11 @@ namespace NzbDrone.Core.MediaFiles.BookImport.Services
                             _logger.Debug(ex, "[SCAN] Failed to set monitored edition for bookId={0}", bookId);
                         }
 
-                        _eventAggregator.PublishEvent(new BookFileAddedEvent(existing));
+                        if (publishAddedEvent)
+                        {
+                            _eventAggregator.PublishEvent(new BookFileAddedEvent(existing));
+                        }
+
                         _logger.Debug("[SCAN] Remapped previously-unmapped file without moving: {0}", path);
                         return Task.FromResult(applied);
                     }
@@ -436,7 +441,11 @@ namespace NzbDrone.Core.MediaFiles.BookImport.Services
                     _logger.Debug(ex, "[SCAN] Failed to set monitored edition for bookId={0}", bookId);
                 }
 
-                _eventAggregator.PublishEvent(new BookFileAddedEvent(bf));
+                if (publishAddedEvent)
+                {
+                    _eventAggregator.PublishEvent(new BookFileAddedEvent(bf));
+                }
+
                 _logger.Debug("[SCAN] Tracked existing file without moving: {0}", path);
                 return Task.FromResult(added);
             }
@@ -806,16 +815,17 @@ namespace NzbDrone.Core.MediaFiles.BookImport.Services
                 }
             }
 
-            // Publish events for rows that were relinked from unmapped so the UI updates immediately.
-            foreach (var bf in relinkedFromUnmapped)
+            // One batch event for all relinked rows: the plural handler dedupes to
+            // per-book duration/alias work instead of firing once per file.
+            if (relinkedFromUnmapped.Count > 0)
             {
                 try
                 {
-                    _eventAggregator.PublishEvent(new BookFileAddedEvent(bf));
+                    _eventAggregator.PublishEvent(new BookFilesAddedEvent(relinkedFromUnmapped));
                 }
                 catch (Exception ex)
                 {
-                    _logger.Debug(ex, "[TRACK] Failed publishing BookFileAddedEvent for relinked file: {0}", bf?.Path);
+                    _logger.Debug(ex, "[TRACK] Failed publishing BookFilesAddedEvent for {0} relinked files", relinkedFromUnmapped.Count);
                 }
             }
 

@@ -34,6 +34,7 @@ namespace NzbDrone.Core.MediaFiles.Commands
         private readonly IPendingAuthorImportService _pendingAuthorImportService;
         private readonly IRootFolderService _rootFolderService;
         private readonly IAuthorService _authorService;
+        private readonly NzbDrone.Core.Messaging.Events.IEventAggregator _eventAggregator;
         private readonly Logger _logger;
 
         public RetryUnmappedMatchCommandHandler(
@@ -50,6 +51,7 @@ namespace NzbDrone.Core.MediaFiles.Commands
             IPendingAuthorImportService pendingAuthorImportService,
             IRootFolderService rootFolderService,
             IAuthorService authorService,
+            NzbDrone.Core.Messaging.Events.IEventAggregator eventAggregator,
             Logger logger)
         {
             _mediaFileService = mediaFileService;
@@ -65,6 +67,7 @@ namespace NzbDrone.Core.MediaFiles.Commands
             _pendingAuthorImportService = pendingAuthorImportService;
             _rootFolderService = rootFolderService;
             _authorService = authorService;
+            _eventAggregator = eventAggregator;
             _logger = logger;
         }
 
@@ -229,6 +232,7 @@ namespace NzbDrone.Core.MediaFiles.Commands
             string source)
         {
             var imported = 0;
+            var importedFileIds = new List<int>();
 
             foreach (var match in matches ?? Array.Empty<FileMatch>())
             {
@@ -247,7 +251,8 @@ namespace NzbDrone.Core.MediaFiles.Commands
                             destination.BookId,
                             destination.EditionId,
                             "Unknown",
-                            match.Provenance)
+                            match.Provenance,
+                            publishAddedEvent: false)
                         .GetAwaiter()
                         .GetResult();
 
@@ -262,6 +267,10 @@ namespace NzbDrone.Core.MediaFiles.Commands
                         if (applyResult.IsApplied)
                         {
                             imported++;
+                            if (applyResult.BookFileId.HasValue)
+                            {
+                                importedFileIds.Add(applyResult.BookFileId.Value);
+                            }
                         }
                         else
                         {
@@ -284,6 +293,24 @@ namespace NzbDrone.Core.MediaFiles.Commands
                     _logger.Warn(ex, "[UNMAPPED-RETRY] Failed to import {0} match for '{1}'", source, match.File.Path);
                     applyFailedPaths.Add(match.File.Path);
                     MarkApplyFailure(match.File.Path, "APPLY_EXCEPTION");
+                }
+            }
+
+            // One plural event per batch: its handler collapses to per-book duration
+            // and alias updates instead of one transaction per imported file.
+            if (importedFileIds.Count > 0)
+            {
+                try
+                {
+                    var importedFiles = _mediaFileService.Get(importedFileIds);
+                    if (importedFiles.Count > 0)
+                    {
+                        _eventAggregator.PublishEvent(new NzbDrone.Core.MediaFiles.Events.BookFilesAddedEvent(importedFiles));
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.Warn(ex, "[UNMAPPED-RETRY] Failed publishing batch added event for {0} files", importedFileIds.Count);
                 }
             }
 
