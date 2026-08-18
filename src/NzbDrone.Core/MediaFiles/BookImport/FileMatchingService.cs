@@ -123,7 +123,7 @@ namespace NzbDrone.Core.MediaFiles.BookImport
 
                 if (System.Text.RegularExpressions.Regex.IsMatch(
                         candidate.Trim(),
-                        @"^[\W_]*((track|chapter|part|cd|disc|kapitel|section)[\W_]*)?\d+[\W_]*$",
+                        @"^[\W_]*((track|chapter|part|cd|disc|kapitel|section)[\W_]*)?\d+[\W_]*$",
                         System.Text.RegularExpressions.RegexOptions.IgnoreCase))
                 {
                     return true;

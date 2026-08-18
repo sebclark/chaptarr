@@ -1967,10 +1967,10 @@ namespace Chaptarr.Core.Test.MediaFiles.BookImport
 
             Assert.Multiple(() =>
             {
-                Assert.That(FileMatchingService.IsSiblingEvidenceCompatible(Tags("Alpha Chapter 3"), "Alpha"), Is.True);
-                Assert.That(FileMatchingService.IsSiblingEvidenceCompatible(Tags("Track 07"), "Alpha"), Is.True);
-                Assert.That(FileMatchingService.IsSiblingEvidenceCompatible(Tags("Alp"), "Alpha"), Is.True);
-                Assert.That(FileMatchingService.IsSiblingEvidenceCompatible(new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase), "Alpha"), Is.True);
+                Assert.That(FileMatchingService.IsSiblingEvidenceCompatible(Tags("Alpha Chapter 3"), "Alpha"), Is.True, "case: contained+marker residual");
+                Assert.That(FileMatchingService.IsSiblingEvidenceCompatible(Tags("Track 07"), "Alpha"), Is.True, "case: bare marker");
+                Assert.That(FileMatchingService.IsSiblingEvidenceCompatible(Tags("Alp"), "Alpha"), Is.True, "case: fragment");
+                Assert.That(FileMatchingService.IsSiblingEvidenceCompatible(new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase), "Alpha"), Is.True, "case: no titles");
                 Assert.That(FileMatchingService.IsSiblingEvidenceCompatible(Tags("Alpha Horizon Chapter 1"), "Alpha"), Is.False);
                 Assert.That(FileMatchingService.IsSiblingEvidenceCompatible(Tags("Beta"), "Alpha"), Is.False);
             });
