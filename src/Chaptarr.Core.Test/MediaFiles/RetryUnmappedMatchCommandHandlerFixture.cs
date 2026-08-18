@@ -151,7 +151,7 @@ namespace Chaptarr.Core.Test.MediaFiles
                 return Task.FromResult(ResultFactory?.Invoke(path, bookId, editionId) ?? BookImportFileResult.Imported(path, 1000 + Imports.Count));
             }
 
-            public Task<BookImportFileResult> ImportExistingFileAsync(DiscoveredFileWithMetadata file, int bookId, int? editionId, string quality, MatchProvenance provenance)
+            public Task<BookImportFileResult> ImportExistingFileAsync(DiscoveredFileWithMetadata file, int bookId, int? editionId, string quality, MatchProvenance provenance, bool publishAddedEvent = true)
             {
                 Imports.Add((file?.Path, bookId, editionId, file?.AllTags, file?.DurationSeconds, file?.Size ?? 0, file?.Modified ?? default));
                 return Task.FromResult(ResultFactory?.Invoke(file?.Path, bookId, editionId) ?? BookImportFileResult.Imported(file?.Path, 1000 + Imports.Count));
@@ -1208,6 +1208,7 @@ namespace Chaptarr.Core.Test.MediaFiles
                 pendingImports,
                 rootFolders,
                 authorService,
+                eventAggregator: null,
                 LogManager.GetCurrentClassLogger());
 
             return new TestContext(
