@@ -1862,5 +1862,118 @@ namespace Chaptarr.Core.Test.MediaFiles.BookImport
                 mediaInfoExtractor: null,
                 logger: logger);
         }
+
+        private FileMatchingService CreateUnitBindingService(BranchingEditionFtsRepository fts)
+        {
+            var logger = LogManager.GetCurrentClassLogger();
+            return new FileMatchingService(
+                matchingLogger: new NullMatchingUploadLogger(),
+                v5MatchingService: null,
+                containmentValidator: new ContainmentValidator(new TagNormalizer(), logger),
+                pendingAuthorImportService: null,
+                commandQueue: null,
+                authorFolderMatchingService: null,
+                rootFolderService: null,
+                configService: ConfigServiceTestProxy.Create(),
+                authorService: new StubAuthorService(new Author { Id = 1001, Name = "Test Author" }),
+                eventAggregator: null,
+                authorLibraryService: null,
+                editionFtsRepository: fts,
+                bookService: null,
+                editionService: null,
+                editionRepository: null,
+                mediaInfoExtractor: null,
+                logger: logger);
+        }
+
+        [Test]
+        public async Task scan_should_bind_unit_siblings_after_the_first_match_instead_of_rerunning_the_pipeline()
+        {
+            var fts = new BranchingEditionFtsRepository();
+            var svc = CreateUnitBindingService(fts);
+
+            var files = Enumerable.Range(1, 30)
+                .Select(i => new DiscoveredFileWithMetadata
+                {
+                    Path = $"/downloads/unit-binding/{i:00}.mp3",
+                    AllTags = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        { "ARTIST", new List<string> { "Test Author" } },
+                        { "TITLE", new List<string> { $"Alpha Chapter {i}" } }
+                    }
+                })
+                .ToArray();
+
+            var result = await svc.MatchFilesToLibraryAsync(files, restrictToAuthorId: null, MatchingContextPresets.ForScanV5());
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(result.MatchedFiles, Has.Length.EqualTo(files.Length));
+                Assert.That(result.MatchedFiles.All(match => match.EditionId == 1), Is.True);
+                Assert.That(fts.Calls, Is.LessThan(files.Length),
+                    "siblings of an already-matched unit must bind to its verdict instead of re-running the catalog pipeline");
+            });
+        }
+
+        [Test]
+        public async Task scan_should_not_bind_a_sibling_whose_title_contradicts_the_unit_verdict()
+        {
+            var fts = new BranchingEditionFtsRepository();
+            var svc = CreateUnitBindingService(fts);
+
+            var files = new[]
+            {
+                new DiscoveredFileWithMetadata
+                {
+                    Path = "/downloads/unit-binding-mixed/01.mp3",
+                    AllTags = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        { "ARTIST", new List<string> { "Test Author" } },
+                        { "TITLE", new List<string> { "Alpha Chapter 1" } }
+                    }
+                },
+                new DiscoveredFileWithMetadata
+                {
+                    Path = "/downloads/unit-binding-mixed/02.mp3",
+                    AllTags = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        { "ARTIST", new List<string> { "Test Author" } },
+                        { "TITLE", new List<string> { "Beta" } }
+                    }
+                }
+            };
+
+            var result = await svc.MatchFilesToLibraryAsync(files, restrictToAuthorId: null, MatchingContextPresets.ForScanV5());
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(result.MatchedFiles, Has.Length.EqualTo(2));
+                Assert.That(result.MatchedFiles.Single(m => m.File.Path.EndsWith("01.mp3")).EditionId, Is.EqualTo(1));
+                Assert.That(result.MatchedFiles.Single(m => m.File.Path.EndsWith("02.mp3")).EditionId, Is.EqualTo(2),
+                    "a sibling with contradicting title evidence must run its own full evaluation");
+            });
+        }
+
+        [Test]
+        public void sibling_compatibility_guard_should_reject_titles_with_extra_identity()
+        {
+            Dictionary<string, List<string>> Tags(string title)
+            {
+                return new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase)
+                {
+                    { "TITLE", new List<string> { title } }
+                };
+            }
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(FileMatchingService.IsSiblingEvidenceCompatible(Tags("Alpha Chapter 3"), "Alpha"), Is.True);
+                Assert.That(FileMatchingService.IsSiblingEvidenceCompatible(Tags("Track 07"), "Alpha"), Is.True);
+                Assert.That(FileMatchingService.IsSiblingEvidenceCompatible(Tags("Alp"), "Alpha"), Is.True);
+                Assert.That(FileMatchingService.IsSiblingEvidenceCompatible(new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase), "Alpha"), Is.True);
+                Assert.That(FileMatchingService.IsSiblingEvidenceCompatible(Tags("Alpha Horizon Chapter 1"), "Alpha"), Is.False);
+                Assert.That(FileMatchingService.IsSiblingEvidenceCompatible(Tags("Beta"), "Alpha"), Is.False);
+            });
+        }
     }
 }

@@ -52,8 +52,105 @@ namespace NzbDrone.Core.MediaFiles.BookImport
         // Instance-scoped (the service is a singleton in production) so test fixtures
         // that build their own service instances cannot see each other's entries.
         private readonly System.Collections.Concurrent.ConcurrentDictionary<string, DateTime> _negativeUnitCache = new System.Collections.Concurrent.ConcurrentDictionary<string, DateTime>();
+
+        private sealed class PositiveUnitVerdict
+        {
+            public DateTime CachedAtUtc { get; set; }
+            public FileMatch Match { get; set; }
+        }
+
+        // First winning match per unit key. Sibling files of the same unit bind to
+        // it (after a cheap compatibility check) instead of re-running the full
+        // pipeline. Instance-scoped for the same reason as the negative cache.
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, PositiveUnitVerdict> _positiveUnitCache = new System.Collections.Concurrent.ConcurrentDictionary<string, PositiveUnitVerdict>();
         private static readonly TimeSpan _negativeUnitCacheTtl = TimeSpan.FromMinutes(10);
         private readonly System.Threading.AsyncLocal<bool> _negativeUnitCacheSuppressed = new System.Threading.AsyncLocal<bool>();
+
+        // A sibling may only inherit the unit's verdict when its own title evidence
+        // does not contradict it: the title contains (or is contained by) the
+        // matched book title, or it is a bare track/chapter marker with no
+        // identity of its own. Anything else runs the full pipeline.
+        internal static bool IsSiblingEvidenceCompatible(Dictionary<string, List<string>> tags, string bookTitle)
+        {
+            if (string.IsNullOrWhiteSpace(bookTitle))
+            {
+                return false;
+            }
+
+            var titles = new List<string>();
+            foreach (var key in new[] { "TITLE", "ID3v2:TIT2", "ALBUM", "ID3v2:TALB" })
+            {
+                if (tags != null && tags.TryGetValue(key, out var values) && values != null)
+                {
+                    titles.AddRange(values.Where(v => !string.IsNullOrWhiteSpace(v)));
+                }
+            }
+
+            if (titles.Count == 0)
+            {
+                return true;
+            }
+
+            var normalizedBook = NormalizeForSiblingComparison(bookTitle);
+            foreach (var candidate in titles)
+            {
+                var normalized = NormalizeForSiblingComparison(candidate);
+                if (normalized.Length == 0)
+                {
+                    continue;
+                }
+
+                if (normalizedBook.Contains(normalized))
+                {
+                    // The sibling's title is a fragment of the book title.
+                    return true;
+                }
+
+                if (normalized.Contains(normalizedBook))
+                {
+                    // The sibling mentions the book title; it may only bind when
+                    // nothing but track/chapter decoration remains around it, so a
+                    // title like "<book> Horizon Chapter 1" (a different work that
+                    // merely shares a prefix) still runs the full pipeline.
+                    var residual = normalized.Replace(normalizedBook, string.Empty);
+                    residual = System.Text.RegularExpressions.Regex.Replace(residual, "track|chapter|part|cd|disc|kapitel|section|book|episode|unabridged", string.Empty);
+                    residual = System.Text.RegularExpressions.Regex.Replace(residual, @"\d+", string.Empty);
+                    if (residual.Length <= 2)
+                    {
+                        return true;
+                    }
+                }
+
+                if (System.Text.RegularExpressions.Regex.IsMatch(
+                        candidate.Trim(),
+                        @"^[\W_]*((track|chapter|part|cd|disc|kapitel|section)[\W_]*)?\d+[\W_]*$",
+                        System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static string NormalizeForSiblingComparison(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return string.Empty;
+            }
+
+            var builder = new System.Text.StringBuilder(value.Length);
+            foreach (var c in value.ToLowerInvariant())
+            {
+                if (char.IsLetterOrDigit(c))
+                {
+                    builder.Append(c);
+                }
+            }
+
+            return builder.ToString();
+        }
 
         private static string BuildNegativeUnitCacheKey(
             DiscoveredFileWithMetadata file,
@@ -4398,6 +4495,31 @@ namespace NzbDrone.Core.MediaFiles.BookImport
                 _negativeUnitCache.TryRemove(negativeUnitKey, out _);
             }
 
+            if (!_negativeUnitCacheSuppressed.Value && _positiveUnitCache.TryGetValue(negativeUnitKey, out var unitVerdict))
+            {
+                if (DateTime.UtcNow - unitVerdict.CachedAtUtc < _negativeUnitCacheTtl)
+                {
+                    if (IsSiblingEvidenceCompatible(embeddedTags, unitVerdict.Match?.BookTitle))
+                    {
+                        _logger.Debug("[HOLY-GRAIL][UNIT-BIND] Sibling file '{0}' bound to unit match '{1}' without a full pipeline pass",
+                            Path.GetFileName(file.Path),
+                            unitVerdict.Match?.BookTitle);
+                        var boundMatch = CopyFileMatchForFile(unitVerdict.Match, file);
+                        boundMatch.MatchedVia = "unit_sibling_binding";
+                        return new HolyGrailEvaluation
+                        {
+                            Match = boundMatch,
+                            WinningTags = embeddedTags,
+                            PathFallbackUsed = false
+                        };
+                    }
+                }
+                else
+                {
+                    _positiveUnitCache.TryRemove(negativeUnitKey, out _);
+                }
+            }
+
             _logger.Debug("[HOLY-GRAIL] === Starting match{0} for '{1}' ===",
                 unscoped ? " (unscoped)" : "",
                 Path.GetFileName(file.Path));
@@ -4458,6 +4580,15 @@ namespace NzbDrone.Core.MediaFiles.BookImport
                         embeddedTags,
                         matchingStrictness,
                         BuildDecisionRoute("embedded_tags", unscoped, restrictToAuthorId.HasValue));
+                    if (!_negativeUnitCacheSuppressed.Value)
+                    {
+                        _positiveUnitCache[negativeUnitKey] = new PositiveUnitVerdict
+                        {
+                            CachedAtUtc = DateTime.UtcNow,
+                            Match = fileMatch
+                        };
+                    }
+
                     return new HolyGrailEvaluation
                     {
                         Match = fileMatch,
