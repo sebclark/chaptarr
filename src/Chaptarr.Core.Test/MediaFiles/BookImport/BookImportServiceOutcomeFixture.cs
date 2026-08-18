@@ -432,11 +432,12 @@ namespace Chaptarr.Core.Test.MediaFiles.BookImport
             Assert.That(stored.MatchProvenance.AuthorProviderIds, Does.Contain("hc:101"));
             Assert.That(stored.MatchProvenance.BookProviderIds, Does.Contain("hc:201"));
             Assert.That(stored.MatchProvenance.EditionProviderIds, Does.Contain("hc:301"));
-            var relinkEvent = context.Events.Events.OfType<BookFileAddedEvent>().Single();
-            Assert.That(relinkEvent.BookFile.Id, Is.EqualTo(stored.Id));
-            Assert.That(relinkEvent.BookFile.Edition, Is.SameAs(context.TargetEdition));
-            Assert.That(relinkEvent.BookFile.Edition.Book, Is.SameAs(context.Book));
-            Assert.That(relinkEvent.BookFile.Author, Is.SameAs(context.Book.Author));
+            var relinkEvent = context.Events.Events.OfType<BookFilesAddedEvent>().Single();
+            var relinkedFile = relinkEvent.BookFiles.Single();
+            Assert.That(relinkedFile.Id, Is.EqualTo(stored.Id));
+            Assert.That(relinkedFile.Edition, Is.SameAs(context.TargetEdition));
+            Assert.That(relinkedFile.Edition.Book, Is.SameAs(context.Book));
+            Assert.That(relinkedFile.Author, Is.SameAs(context.Book.Author));
         }
 
         [Test]
