@@ -30,6 +30,43 @@ namespace NzbDrone.Core.MetadataSource.BookInfo
     public class V5MatchingService : IV5MatchingService
     {
         private readonly IHttpClient _httpClient;
+
+        // Opt-in outbound rate limit for metadata match requests. The hosted
+        // server's edge rate-bans IPs that burst (rapid requests return 403,
+        // surfacing in-app as METADATA_SERVER_UNAVAILABLE), so heavy library
+        // scans must pace themselves. Set CHAPTARR_V5_MIN_INTERVAL_MS to the
+        // minimum spacing between requests; unset or 0 keeps current behaviour.
+        private static readonly object V5RateLock = new object();
+        private static DateTime _lastV5RequestUtc = DateTime.MinValue;
+        private static readonly int V5MinIntervalMs = ParseV5MinIntervalMs();
+
+        private static int ParseV5MinIntervalMs()
+        {
+            var raw = Environment.GetEnvironmentVariable("CHAPTARR_V5_MIN_INTERVAL_MS");
+            return int.TryParse(raw, out var ms) && ms > 0 ? Math.Min(ms, 60000) : 0;
+        }
+
+        private static void WaitForV5RateSlot()
+        {
+            if (V5MinIntervalMs <= 0)
+            {
+                return;
+            }
+
+            TimeSpan wait;
+            lock (V5RateLock)
+            {
+                var now = DateTime.UtcNow;
+                var next = _lastV5RequestUtc.AddMilliseconds(V5MinIntervalMs);
+                wait = next > now ? next - now : TimeSpan.Zero;
+                _lastV5RequestUtc = now.Add(wait);
+            }
+
+            if (wait > TimeSpan.Zero)
+            {
+                System.Threading.Thread.Sleep(wait);
+            }
+        }
         private readonly IProvideAuthorInfo _authorInfoProxy;
         private readonly IConfigService _configService;
         private readonly IAuthorService _authorService;
@@ -172,6 +209,7 @@ namespace NzbDrone.Core.MetadataSource.BookInfo
                         return new List<V5MatchedAuthor>();
                     }
 
+                    WaitForV5RateSlot();
                     httpResponse = _httpClient.Execute(httpRequest);
                     _metadataServerHealthGate.ReportResponse(httpResponse);
                     stopwatch.Stop();
