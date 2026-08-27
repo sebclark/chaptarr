@@ -146,7 +146,8 @@ namespace Chaptarr.Core.Test.MediaFiles
                 DispatchProxy.Create<IDiskProvider, DiskProviderProxy>(),
                 DispatchProxy.Create<IRootFolderService, RootFolderServiceProxy>(),
                 DispatchProxy.Create<ICalibreProxy, ThrowingProxy<ICalibreProxy>>(),
-                LogManager.GetCurrentClassLogger());
+                LogManager.GetCurrentClassLogger(),
+                null);
 
             Assert.DoesNotThrow(() => subject.UpgradeBookFile(replacement, localBook));
 
