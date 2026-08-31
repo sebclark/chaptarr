@@ -31,33 +31,66 @@ namespace NzbDrone.Core.MetadataSource.BookInfo
     {
         private readonly IHttpClient _httpClient;
 
-        // Opt-in outbound rate limit for metadata match requests. The hosted
-        // server's edge rate-bans IPs that burst (rapid requests return 403,
-        // surfacing in-app as METADATA_SERVER_UNAVAILABLE), so heavy library
-        // scans must pace themselves. Set CHAPTARR_V5_MIN_INTERVAL_MS to the
-        // minimum spacing between requests; unset or 0 keeps current behaviour.
+        // Adaptive pacing for metadata match requests. api2 answers healthy
+        // requests in ~100ms but intermittently stalls to a 15s timeout under
+        // load, and each timeout opens the health gate so every match queued
+        // behind it is SKIPPED rather than retried - one stall can burn
+        // thousands of files. Run at full speed while the server is healthy,
+        // and back off hard the moment it times out so pending work waits
+        // instead of being thrown away.
+        //   CHAPTARR_V5_MIN_INTERVAL_MS - floor between requests (default 0)
+        //   CHAPTARR_V5_BACKOFF_MS      - pause after a failure, escalating
+        //                                 per consecutive failure (default 1000)
         private static readonly object V5RateLock = new object();
         private static DateTime _lastV5RequestUtc = DateTime.MinValue;
-        private static readonly int V5MinIntervalMs = ParseV5MinIntervalMs();
+        private static DateTime _v5PenaltyUntilUtc = DateTime.MinValue;
+        private static int _v5ConsecutiveFailures;
+        private static readonly int V5MinIntervalMs = ParseIntEnv("CHAPTARR_V5_MIN_INTERVAL_MS", 0);
+        private static readonly int V5BackoffMs = ParseIntEnv("CHAPTARR_V5_BACKOFF_MS", 1000);
+        private const int V5MaxBackoffSteps = 8;
 
-        private static int ParseV5MinIntervalMs()
+        private static int ParseIntEnv(string name, int fallback)
         {
-            var raw = Environment.GetEnvironmentVariable("CHAPTARR_V5_MIN_INTERVAL_MS");
-            return int.TryParse(raw, out var ms) && ms > 0 ? Math.Min(ms, 60000) : 0;
+            var raw = Environment.GetEnvironmentVariable(name);
+            return int.TryParse(raw, out var ms) && ms >= 0 ? Math.Min(ms, 60000) : fallback;
+        }
+
+        private static void ReportV5Outcome(bool success)
+        {
+            lock (V5RateLock)
+            {
+                if (success)
+                {
+                    _v5ConsecutiveFailures = 0;
+                    return;
+                }
+
+                if (V5BackoffMs <= 0)
+                {
+                    return;
+                }
+
+                _v5ConsecutiveFailures = Math.Min(_v5ConsecutiveFailures + 1, V5MaxBackoffSteps);
+                var until = DateTime.UtcNow.AddMilliseconds((double)V5BackoffMs * _v5ConsecutiveFailures);
+                if (until > _v5PenaltyUntilUtc)
+                {
+                    _v5PenaltyUntilUtc = until;
+                }
+            }
         }
 
         private static void WaitForV5RateSlot()
         {
-            if (V5MinIntervalMs <= 0)
-            {
-                return;
-            }
-
             TimeSpan wait;
             lock (V5RateLock)
             {
                 var now = DateTime.UtcNow;
                 var next = _lastV5RequestUtc.AddMilliseconds(V5MinIntervalMs);
+                if (_v5PenaltyUntilUtc > next)
+                {
+                    next = _v5PenaltyUntilUtc;
+                }
+
                 wait = next > now ? next - now : TimeSpan.Zero;
                 _lastV5RequestUtc = now.Add(wait);
             }
@@ -67,6 +100,7 @@ namespace NzbDrone.Core.MetadataSource.BookInfo
                 System.Threading.Thread.Sleep(wait);
             }
         }
+
         private readonly IProvideAuthorInfo _authorInfoProxy;
         private readonly IConfigService _configService;
         private readonly IAuthorService _authorService;
@@ -212,12 +246,14 @@ namespace NzbDrone.Core.MetadataSource.BookInfo
                     WaitForV5RateSlot();
                     httpResponse = _httpClient.Execute(httpRequest);
                     _metadataServerHealthGate.ReportResponse(httpResponse);
+                    ReportV5Outcome(true);
                     stopwatch.Stop();
                     _logger.Debug("[V5-MATCHING] HTTP request completed in {0}ms", stopwatch.ElapsedMilliseconds);
                 }
                 catch (Exception httpEx)
                 {
                     _metadataServerHealthGate.ReportException(httpEx);
+                    ReportV5Outcome(false);
                     stopwatch.Stop();
                     _logger.Error(httpEx, "[V5-MATCHING] HTTP request failed after {0}ms! URL: {1}", stopwatch.ElapsedMilliseconds, url);
                     _logger.Error("[V5-MATCHING] Exception type: {0}", httpEx.GetType().FullName);
