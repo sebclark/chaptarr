@@ -104,5 +104,89 @@ namespace Chaptarr.Core.Test.Books
             Assert.That(WorkIdMatcher.WorkProviderIdMatches(first, second), Is.False);
             Assert.That(WorkIdMatcher.CrossFormatSafeMatches(first, second), Is.False);
         }
+        // The metadata server holds March Upcountry twice: 248079 with gr/hc work IDs
+        // and 248123 with none. The download was grabbed against the identified row and
+        // matched to the bare duplicate, so the import was rejected as a mismatch.
+        [Test]
+        public void should_treat_unidentified_duplicate_row_as_the_same_work()
+        {
+            var identified = new Book
+            {
+                Id = 248079,
+                Title = "March Upcountry",
+                MediaType = BookMediaType.Audiobook,
+                HardcoverBookId = "hc:446298",
+                GoodreadsWorkId = "gr:26063"
+            };
+
+            var bareDuplicate = new Book
+            {
+                Id = 248123,
+                Title = "March Upcountry",
+                MediaType = BookMediaType.Audiobook
+            };
+
+            Assert.That(WorkIdMatcher.WorkProviderIdMatches(identified, bareDuplicate), Is.False,
+                "work-ID matching cannot succeed when one row carries none");
+            Assert.That(WorkIdMatcher.SameWorkOrUnidentifiedDuplicate(identified, bareDuplicate), Is.True);
+        }
+
+        [Test]
+        public void should_not_merge_two_identified_works_that_differ()
+        {
+            var first = new Book
+            {
+                Title = "March Upcountry",
+                MediaType = BookMediaType.Audiobook,
+                HardcoverBookId = "hc:446298"
+            };
+
+            var second = new Book
+            {
+                Title = "March Upcountry",
+                MediaType = BookMediaType.Audiobook,
+                HardcoverBookId = "hc:999999"
+            };
+
+            Assert.That(WorkIdMatcher.SameWorkOrUnidentifiedDuplicate(first, second), Is.False,
+                "both sides identified and disagreeing must stay separate");
+        }
+
+        [Test]
+        public void should_not_match_unidentified_rows_with_different_titles()
+        {
+            var left = new Book { Title = "March Upcountry", MediaType = BookMediaType.Audiobook };
+            var right = new Book { Title = "March to the Sea", MediaType = BookMediaType.Audiobook };
+
+            Assert.That(WorkIdMatcher.SameWorkOrUnidentifiedDuplicate(left, right), Is.False);
+        }
+
+        [Test]
+        public void should_ignore_apostrophe_style_when_comparing_duplicate_titles()
+        {
+            var curly = new Book
+            {
+                Title = "Harry Potter and the Philosopher’s Stone",
+                MediaType = BookMediaType.Audiobook,
+                HardcoverBookId = "hc:123"
+            };
+            var straight = new Book
+            {
+                Title = "Harry Potter and the Philosopher's Stone",
+                MediaType = BookMediaType.Audiobook
+            };
+
+            Assert.That(WorkIdMatcher.SameWorkOrUnidentifiedDuplicate(curly, straight), Is.True);
+        }
+
+        [Test]
+        public void should_not_match_unidentified_rows_across_media_types()
+        {
+            var audio = new Book { Title = "March Upcountry", MediaType = BookMediaType.Audiobook };
+            var ebook = new Book { Title = "March Upcountry", MediaType = BookMediaType.Ebook };
+
+            Assert.That(WorkIdMatcher.SameWorkOrUnidentifiedDuplicate(audio, ebook), Is.False);
+        }
+
     }
 }

@@ -824,7 +824,7 @@ namespace NzbDrone.Core.MediaFiles
                 return false;
             }
 
-            return WorkIdMatcher.WorkProviderIdMatches(targetBook, matchedBook);
+            return WorkIdMatcher.SameWorkOrUnidentifiedDuplicate(targetBook, matchedBook);
         }
 
         private Edition FindEquivalentEditionForTargetBook(Book targetBook, Edition matchedEdition)

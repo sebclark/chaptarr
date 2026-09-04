@@ -42,6 +42,79 @@ namespace NzbDrone.Core.Books
         }
 
         /// <summary>
+        /// True when two rows are the same work, tolerating catalogue duplicates that
+        /// carry no work IDs at all.
+        ///
+        /// The metadata server can hold the same book twice: one row fully identified,
+        /// its duplicate with no work IDs. WorkProviderIdMatches bails as soon as either
+        /// side has no IDs, so a completed download grabbed against one row and matched
+        /// to the other was rejected as a mismatch and never imported.
+        ///
+        /// Falling back to author + title is only safe when work IDs are ABSENT, never
+        /// when they are present and different - two known-but-different works must stay
+        /// separate.
+        /// </summary>
+        public static bool SameWorkOrUnidentifiedDuplicate(Book left, Book right)
+        {
+            if (left == null || right == null)
+            {
+                return false;
+            }
+
+            if (WorkProviderIdMatches(left, right))
+            {
+                return true;
+            }
+
+            var leftIds = GetWorkProviderIds(left);
+            var rightIds = GetWorkProviderIds(right);
+
+            // Both sides identified and not intersecting: genuinely different works.
+            if (leftIds.Count > 0 && rightIds.Count > 0)
+            {
+                return false;
+            }
+
+            if (left.MediaType != right.MediaType)
+            {
+                return false;
+            }
+
+            var leftTitle = NormalizeTitle(left.Title);
+            return leftTitle.IsNotNullOrWhiteSpace() && leftTitle == NormalizeTitle(right.Title);
+        }
+
+        private static string NormalizeTitle(string title)
+        {
+            if (title.IsNullOrWhiteSpace())
+            {
+                return string.Empty;
+            }
+
+            var builder = new System.Text.StringBuilder(title.Length);
+            foreach (var ch in title)
+            {
+                // Apostrophes are dropped rather than turned into separators so
+                // "Philosopher's" and "Philosophers" normalise the same way.
+                if (ch == '\u0027' || ch == '\u2019' || ch == '\u2018' || ch == '\u02bc')
+                {
+                    continue;
+                }
+
+                if (char.IsLetterOrDigit(ch))
+                {
+                    builder.Append(char.ToLowerInvariant(ch));
+                }
+                else if (builder.Length > 0 && builder[builder.Length - 1] != ' ')
+                {
+                    builder.Append(' ');
+                }
+            }
+
+            return builder.ToString().Trim();
+        }
+
+        /// <summary>
         /// Cross-format-safe matcher for "same work" grouping.
         /// Same-format comparisons may use broader edition/work identity, but audiobook↔ebook
         /// comparisons must only use work-level provider IDs to avoid linking unrelated editions.
