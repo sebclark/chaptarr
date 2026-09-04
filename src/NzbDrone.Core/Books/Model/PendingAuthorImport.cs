@@ -128,7 +128,17 @@ namespace NzbDrone.Core.Books
 
             if (audiobookDone && ebookDone)
             {
-                if (audiobookSuccess && ebookSuccess)
+                // NotRequested counts as both "done" and "successful" for each media
+                // type, so a row requesting NEITHER satisfied every condition above and
+                // was reported Succeeded while importing nothing at all. Callers that
+                // omit the per-media root folders produce exactly such rows, and the
+                // queue then shows a wall of green that never yields an author.
+                if (AudiobookStatus == PendingImportStatus.NotRequested &&
+                    EbookStatus == PendingImportStatus.NotRequested)
+                {
+                    OverallStatus = PendingImportStatus.Failed;
+                }
+                else if (audiobookSuccess && ebookSuccess)
                 {
                     OverallStatus = PendingImportStatus.Succeeded;
                 }
