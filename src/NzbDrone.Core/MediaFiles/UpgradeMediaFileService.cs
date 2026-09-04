@@ -62,9 +62,22 @@ namespace NzbDrone.Core.MediaFiles
             // switch) must never destroy files that outrank the incoming one
             // in the author's profile. Decision specs compare within an
             // edition; this is the only place that sees the actual deletion.
+            // LocalBook.Author is not populated on every import path (BookImportService
+            // works from Book.Author), and reading only LocalBook.Author made the guard
+            // silently no-op: guardProfileId was null, `null > 0` was false, and an
+            // existing M4B got replaced by an incoming MP3. Resolve the author from any
+            // available source, and say so out loud when none can be found.
+            var guardAuthor = localBook.Author ?? localBook.Book?.Author;
             var guardProfileId = localBook.Book?.MediaType == Books.BookMediaType.Ebook
-                ? localBook.Author?.EbookQualityProfileId
-                : localBook.Author?.AudiobookQualityProfileId;
+                ? guardAuthor?.EbookQualityProfileId
+                : guardAuthor?.AudiobookQualityProfileId;
+            if (!(guardProfileId > 0) && existingFiles.Any() && bookFile.Quality != null)
+            {
+                _logger.Warn(
+                    "Quality downgrade guard could not resolve a quality profile for '{0}'; existing files are not protected for this import",
+                    localBook.Path);
+            }
+
             if (guardProfileId > 0 && bookFile.Quality != null && _qualityProfileService != null)
             {
                 var guardProfile = _qualityProfileService.Get(guardProfileId.Value);

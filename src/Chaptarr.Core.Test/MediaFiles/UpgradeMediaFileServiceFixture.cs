@@ -9,6 +9,8 @@ using NzbDrone.Core.Books;
 using NzbDrone.Core.Books.Calibre;
 using NzbDrone.Core.MediaFiles;
 using NzbDrone.Core.Parser.Model;
+using NzbDrone.Core.Profiles.Qualities;
+using NzbDrone.Core.Qualities;
 using NzbDrone.Core.RootFolders;
 
 namespace Chaptarr.Core.Test.MediaFiles
@@ -156,6 +158,87 @@ namespace Chaptarr.Core.Test.MediaFiles
                 Assert.That(recycleBin.DeletedFiles, Is.Empty);
                 Assert.That(mediaProxy.Deleted, Is.EqualTo(new[] { stale }));
                 Assert.That(mover.Moved, Is.True);
+            });
+        }
+
+        private class StubQualityProfileService : DispatchProxy
+        {
+            protected override object Invoke(MethodInfo targetMethod, object[] args)
+            {
+                if (targetMethod?.Name == nameof(IQualityProfileService.Get))
+                {
+                    // MP3 then M4B: later index is preferred, so M4B outranks MP3.
+                    return new QualityProfile
+                    {
+                        Id = 2,
+                        Name = "Audiobook",
+                        Cutoff = Quality.M4B.Id,
+                        UpgradeAllowed = true,
+                        Items = new List<QualityProfileQualityItem>
+                        {
+                            new QualityProfileQualityItem { Quality = Quality.MP3, Allowed = true },
+                            new QualityProfileQualityItem { Quality = Quality.M4B, Allowed = true }
+                        }
+                    };
+                }
+
+                throw new NotImplementedException($"Test proxy does not implement IQualityProfileService.{targetMethod?.Name}");
+            }
+        }
+
+        // The import pipeline populates LocalBook.Book.Author but does not always set
+        // LocalBook.Author. The guard read only LocalBook.Author, so guardProfileId was
+        // null, `null > 0` was false, and the whole downgrade check was skipped - an
+        // existing M4B was deleted and replaced by an incoming MP3.
+        [Test]
+        public void should_refuse_downgrade_when_localbook_author_not_populated()
+        {
+            var existingM4b = new BookFile
+            {
+                Id = 1,
+                Path = "/books/Author/Book/Book.m4b",
+                Quality = new QualityModel(Quality.M4B)
+            };
+            var incomingMp3 = new BookFile
+            {
+                Id = 2,
+                Path = "/downloads/Book.mp3",
+                Quality = new QualityModel(Quality.MP3)
+            };
+            var author = new Author { Id = 1, Path = "/books/Author", AudiobookQualityProfileId = 2 };
+            var book = new Book
+            {
+                Id = 2,
+                Author = author,
+                MediaType = BookMediaType.Audiobook,
+                BookFiles = new List<BookFile> { existingM4b }
+            };
+            var localBook = new LocalBook
+            {
+                Author = null,          // the import path leaves this unset
+                Book = book,
+                Path = incomingMp3.Path
+            };
+            var recycleBin = new RecordingRecycleBinProvider();
+            var mediaFileService = DispatchProxy.Create<IMediaFileService, MediaFileServiceProxy>();
+            var mediaProxy = (MediaFileServiceProxy)(object)mediaFileService;
+            var subject = new UpgradeMediaFileService(
+                recycleBin,
+                mediaFileService,
+                DispatchProxy.Create<IMetadataTagService, NoOpProxy<IMetadataTagService>>(),
+                new StubBookFileMover(),
+                DispatchProxy.Create<IDiskProvider, DiskProviderProxy>(),
+                DispatchProxy.Create<IRootFolderService, RootFolderServiceProxy>(),
+                DispatchProxy.Create<ICalibreProxy, ThrowingProxy<ICalibreProxy>>(),
+                LogManager.GetCurrentClassLogger(),
+                DispatchProxy.Create<IQualityProfileService, StubQualityProfileService>());
+
+            Assert.Throws<InvalidOperationException>(() => subject.UpgradeBookFile(incomingMp3, localBook));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(recycleBin.DeletedFiles, Is.Empty, "existing M4B must not be recycled");
+                Assert.That(mediaProxy.Deleted, Is.Empty, "existing M4B row must not be deleted");
             });
         }
     }
