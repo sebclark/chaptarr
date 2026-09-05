@@ -81,7 +81,76 @@ namespace NzbDrone.Core.Books
             }
 
             var leftTitle = NormalizeTitle(left.Title);
-            return leftTitle.IsNotNullOrWhiteSpace() && leftTitle == NormalizeTitle(right.Title);
+            var rightTitle = NormalizeTitle(right.Title);
+            if (leftTitle.IsNullOrWhiteSpace() || rightTitle.IsNullOrWhiteSpace())
+            {
+                return false;
+            }
+
+            if (leftTitle == rightTitle)
+            {
+                return true;
+            }
+
+            return IsSubtitleVariantOf(left.Title, right.Title) ||
+                   IsSubtitleVariantOf(right.Title, left.Title);
+        }
+
+        // Subtitles disagreeing between duplicate rows is common: the same audiobook is
+        // held as "The Eye of the World" and "The Eye of the World: Book One of The Wheel
+        // of Time". Accept that ONLY when the shorter title is the longer one's title
+        // proper - the text before its first colon - and the subtitle does not advertise
+        // a compilation. "Muddle Earth" / "Muddle Earth Too" has no colon and is
+        // correctly refused; "Mercy Watson: #1-2" and "Tilly Trotter: An Omnibus" are
+        // refused by the digit and keyword guards below.
+        private static readonly string[] CompilationMarkers =
+        {
+            "omnibus", "collection", "box set", "boxed set", "anthology", "volume", "vol", "complete"
+        };
+
+        private static bool IsSubtitleVariantOf(string shortTitle, string longTitle)
+        {
+            if (shortTitle.IsNullOrWhiteSpace() || longTitle.IsNullOrWhiteSpace())
+            {
+                return false;
+            }
+
+            var colon = longTitle.IndexOf(':');
+            if (colon <= 0 || colon >= longTitle.Length - 1)
+            {
+                return false;
+            }
+
+            var titleProper = NormalizeTitle(longTitle.Substring(0, colon));
+            if (titleProper.IsNullOrWhiteSpace() || titleProper != NormalizeTitle(shortTitle))
+            {
+                return false;
+            }
+
+            var subtitle = longTitle.Substring(colon + 1);
+            foreach (var ch in subtitle)
+            {
+                // A number in the subtitle usually means a range or volume, i.e. a
+                // compilation rather than this single work.
+                if (char.IsDigit(ch))
+                {
+                    return false;
+                }
+            }
+
+            var normalizedSubtitle = NormalizeTitle(subtitle);
+            foreach (var marker in CompilationMarkers)
+            {
+                if (normalizedSubtitle == marker ||
+                    normalizedSubtitle.StartsWith(marker + " ", System.StringComparison.Ordinal) ||
+                    normalizedSubtitle.EndsWith(" " + marker, System.StringComparison.Ordinal) ||
+                    normalizedSubtitle.Contains(" " + marker + " ", System.StringComparison.Ordinal))
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         private static string NormalizeTitle(string title)
