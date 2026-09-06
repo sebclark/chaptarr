@@ -17,6 +17,7 @@ import PageToolbar from 'Components/Page/Toolbar/PageToolbar';
 import PageToolbarButton from 'Components/Page/Toolbar/PageToolbarButton';
 import PageToolbarSection from 'Components/Page/Toolbar/PageToolbarSection';
 import TableOptionsModalWrapper from 'Components/Table/TableOptions/TableOptionsModalWrapper';
+import TablePager from 'Components/Table/TablePager';
 import VirtualTable from 'Components/Table/VirtualTable';
 import VirtualTableRow from 'Components/Table/VirtualTableRow';
 import { align, icons, kinds, sizes, sortDirections } from 'Helpers/Props';
@@ -758,6 +759,14 @@ class UnmappedFilesTable extends Component {
       error,
       items,
       columns,
+      page,
+      totalPages,
+      totalRecords,
+      onFirstPagePress,
+      onPreviousPagePress,
+      onNextPagePress,
+      onLastPagePress,
+      onPageSelect,
       sortKey,
       sortDirection,
       onTableOptionChange,
@@ -939,6 +948,21 @@ class UnmappedFilesTable extends Component {
           }
         </PageContentBody>
 
+        {
+          isPopulated && !error && !!items.length &&
+            <TablePager
+              page={page}
+              totalPages={totalPages}
+              totalRecords={totalRecords}
+              isFetching={isFetching}
+              onFirstPagePress={onFirstPagePress}
+              onPreviousPagePress={onPreviousPagePress}
+              onNextPagePress={onNextPagePress}
+              onLastPagePress={onLastPagePress}
+              onPageSelect={onPageSelect}
+            />
+        }
+
         <ConfirmModal
           isOpen={isConfirmDeleteModalOpen}
           kind={kinds.DANGER}
@@ -958,6 +982,14 @@ class UnmappedFilesTable extends Component {
 UnmappedFilesTable.propTypes = {
   isFetching: PropTypes.bool.isRequired,
   isPopulated: PropTypes.bool.isRequired,
+  page: PropTypes.number,
+  totalPages: PropTypes.number,
+  totalRecords: PropTypes.number,
+  onFirstPagePress: PropTypes.func.isRequired,
+  onPreviousPagePress: PropTypes.func.isRequired,
+  onNextPagePress: PropTypes.func.isRequired,
+  onLastPagePress: PropTypes.func.isRequired,
+  onPageSelect: PropTypes.func.isRequired,
   isDeleting: PropTypes.bool.isRequired,
   isSendingLogs: PropTypes.bool.isRequired,
   deleteError: PropTypes.object,

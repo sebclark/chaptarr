@@ -14,6 +14,7 @@ using NzbDrone.Core.MediaFiles.Events;
 using NzbDrone.Core.Messaging.Events;
 using NzbDrone.Core.RootFolders;
 
+using NzbDrone.Core.MediaFiles.BookImport.Services;
 namespace NzbDrone.Core.MediaFiles
 {
     public interface IMediaFileService
@@ -86,6 +87,16 @@ namespace NzbDrone.Core.MediaFiles
         BookFile GetFileWithPath(string path);
         void UpdateMediaInfo(List<BookFile> bookFiles);
         List<BookFile> GetFilesByAuthorAndMediaType(int authorId, string mediaType);
+        // Default keeps the ten-odd test stubs compiling and is behaviourally correct;
+        // MediaFileService overrides it with a query that reads Id + Path only, which is
+        // the whole point - the per-file metadata on a full row is what made serving the
+        // unmapped page expensive enough to exhaust the process.
+        List<UnmappedFileIdentifier> GetUnmappedFileIdentifiers(string mediaType)
+        {
+            return GetUnmappedFiles(mediaType)
+                .Select(file => new UnmappedFileIdentifier { Id = file.Id, Path = file.Path })
+                .ToList();
+        }
     }
 
     public class MediaFileService : IMediaFileService,
@@ -454,6 +465,11 @@ namespace NzbDrone.Core.MediaFiles
         public List<BookFile> GetUnmappedFiles()
         {
             return _mediaFileRepository.GetUnmappedFiles();
+        }
+
+        public List<UnmappedFileIdentifier> GetUnmappedFileIdentifiers(string mediaType)
+        {
+            return _mediaFileRepository.GetUnmappedFileIdentifiers(mediaType);
         }
 
         public List<BookFile> GetUnmappedFiles(string mediaType)

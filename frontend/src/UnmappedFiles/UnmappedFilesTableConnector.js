@@ -1,4 +1,3 @@
-import _ from 'lodash';
 import PropTypes from 'prop-types';
 import React, { Component } from 'react';
 import { connect } from 'react-redux';
@@ -7,9 +6,17 @@ import * as commandNames from 'Commands/commandNames';
 import withCurrentPage from 'Components/withCurrentPage';
 import { messageTypes } from 'Helpers/Props';
 import { showMessage } from 'Store/Actions/appActions';
-import { deleteBookFile, deleteBookFiles, fetchBookFiles, setBookFilesSort, setBookFilesTableOption } from 'Store/Actions/bookFileActions';
+import { deleteBookFile, deleteBookFiles } from 'Store/Actions/bookFileActions';
 import { executeCommand } from 'Store/Actions/commandActions';
-import createClientSideCollectionSelector from 'Store/Selectors/createClientSideCollectionSelector';
+import {
+  fetchUnmappedFiles,
+  gotoUnmappedFilesFirstPage,
+  gotoUnmappedFilesLastPage,
+  gotoUnmappedFilesNextPage,
+  gotoUnmappedFilesPage,
+  gotoUnmappedFilesPreviousPage,
+  setUnmappedFilesTableOption
+} from 'Store/Actions/unmappedFileActions';
 import createCommandExecutingSelector from 'Store/Selectors/createCommandExecutingSelector';
 import createDimensionsSelector from 'Store/Selectors/createDimensionsSelector';
 import createAjaxRequest from 'Utilities/createAjaxRequest';
@@ -18,28 +25,29 @@ import UnmappedFilesTable from './UnmappedFilesTable';
 
 function createMapStateToProps() {
   return createSelector(
-    createClientSideCollectionSelector('bookFiles'),
+    (state) => state.unmappedFiles,
     createCommandExecutingSelector(commandNames.REFRESH_UNMAPPED_FILES),
     createCommandExecutingSelector(commandNames.RETRY_UNMAPPED_MATCH),
     createCommandExecutingSelector(commandNames.SEND_MATCHING_LOGS),
     createDimensionsSelector(),
     (
-      bookFiles,
+      unmappedFiles,
       isRefreshingFiles,
       isRetryMatching,
       isSendingLogs,
       dimensionsState
     ) => {
-      // bookFiles could pick up mapped entries via signalR so filter again here
+      // The server now returns one page of folders rather than every unmapped file,
+      // so there is nothing to re-filter client side: the endpoint only ever selects
+      // rows with no edition. totalRecords counts FOLDERS, not files, because paging
+      // is folder-aligned to keep import units whole.
       const {
         items,
         ...otherProps
-      } = bookFiles;
-
-      const unmappedFiles = _.filter(items, { bookId: 0 });
+      } = unmappedFiles;
 
       return {
-        items: unmappedFiles,
+        items,
         ...otherProps,
         isRefreshingFiles,
         isRetryMatching,
@@ -53,15 +61,31 @@ function createMapStateToProps() {
 function createMapDispatchToProps(dispatch, props) {
   return {
     onTableOptionChange(payload) {
-      dispatch(setBookFilesTableOption(payload));
+      dispatch(setUnmappedFilesTableOption(payload));
     },
 
-    onSortPress(sortKey) {
-      dispatch(setBookFilesSort({ sortKey }));
+    onFirstPagePress() {
+      dispatch(gotoUnmappedFilesFirstPage());
+    },
+
+    onPreviousPagePress() {
+      dispatch(gotoUnmappedFilesPreviousPage());
+    },
+
+    onNextPagePress() {
+      dispatch(gotoUnmappedFilesNextPage());
+    },
+
+    onLastPagePress() {
+      dispatch(gotoUnmappedFilesLastPage());
+    },
+
+    onPageSelect(page) {
+      dispatch(gotoUnmappedFilesPage({ page }));
     },
 
     fetchUnmappedFiles() {
-      dispatch(fetchBookFiles({ unmapped: true }));
+      dispatch(fetchUnmappedFiles());
     },
 
     deleteUnmappedFile(id) {
@@ -94,7 +118,7 @@ function createMapDispatchToProps(dispatch, props) {
         mediaType,
         unmappedFiles,
         commandFinished: () => {
-          dispatch(fetchBookFiles({ unmapped: true }));
+          dispatch(fetchUnmappedFiles());
         }
       }));
     },
@@ -105,7 +129,7 @@ function createMapDispatchToProps(dispatch, props) {
         mediaType,
         unmappedFiles,
         commandFinished: () => {
-          dispatch(fetchBookFiles({ unmapped: true }));
+          dispatch(fetchUnmappedFiles());
         }
       }));
     },

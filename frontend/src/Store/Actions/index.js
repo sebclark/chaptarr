@@ -33,6 +33,7 @@ import * as series from './seriesActions';
 import * as settings from './settingsActions';
 import * as system from './systemActions';
 import * as tags from './tagActions';
+import * as unmappedFiles from './unmappedFileActions';
 import * as wanted from './wantedActions';
 
 export default [
@@ -56,6 +57,7 @@ export default [
   customFilters,
   editions,
   history,
+  unmappedFiles,
   ignored,
   interactiveImportActions,
   oAuth,

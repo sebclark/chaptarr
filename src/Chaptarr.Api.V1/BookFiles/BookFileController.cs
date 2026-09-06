@@ -212,6 +212,37 @@ namespace Chaptarr.Api.V1.BookFiles
             return resource;
         }
 
+        [HttpGet("unmapped")]
+        [Produces("application/json")]
+        public PagingResource<BookFileResource> GetUnmappedBookFiles([FromQuery] PagingRequestResource paging, string mediaType = null)
+        {
+            // The unpaged route below loads every unmapped file - full rows, resources and
+            // per-file metadata - to render one screen. On a library with tens of thousands
+            // of them that exhausted the process and took the SignalR connection down with
+            // it, which the UI reports as "Connection Lost". Here only the requested page is
+            // ever materialised: identifiers are cheap (id + path), and full rows are read
+            // for one page of folders.
+            var normalizedMediaType = MediaTypeParameterParser.NormalizeOptional(mediaType);
+            var pagingResource = new PagingResource<BookFileResource>(paging);
+            var page = pagingResource.Page < 1 ? 1 : pagingResource.Page;
+            var pageSize = pagingResource.PageSize < 1 ? 20 : pagingResource.PageSize;
+
+            var identifiers = _mediaFileService.GetUnmappedFileIdentifiers(normalizedMediaType);
+            var selection = UnmappedFilePaging.SelectFolderPage(identifiers, page, pageSize);
+
+            var files = selection.FileIds.Count == 0
+                ? new List<BookFile>()
+                : _mediaFileService.GetUnmappedFiles(selection.FileIds, normalizedMediaType);
+
+            pagingResource.Page = page;
+            pagingResource.PageSize = pageSize;
+            // Paging is by folder, so the total the client pages against is folders, not files.
+            pagingResource.TotalRecords = selection.TotalFolders;
+            pagingResource.Records = MapUnmappedResources(files);
+
+            return pagingResource;
+        }
+
         [HttpGet]
         public List<BookFileResource> GetBookFiles(int? authorId, [FromQuery] List<int> bookFileIds, [FromQuery(Name = "bookId")] List<int> bookIds, bool? unmapped, string mediaType = null)
         {

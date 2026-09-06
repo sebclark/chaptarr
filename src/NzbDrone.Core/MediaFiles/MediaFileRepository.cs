@@ -6,6 +6,7 @@ using Dapper;
 using NzbDrone.Common;
 using NzbDrone.Core.Books;
 using NzbDrone.Core.Datastore;
+using NzbDrone.Core.MediaFiles.BookImport.Services;
 using NzbDrone.Core.Messaging.Events;
 
 namespace NzbDrone.Core.MediaFiles
@@ -20,6 +21,7 @@ namespace NzbDrone.Core.MediaFiles
         List<BookFile> GetUnmappedFiles();
         List<BookFile> GetUnmappedFiles(string mediaType);
         List<BookFile> GetUnmappedFiles(IEnumerable<int> ids, string mediaType);
+        List<UnmappedFileIdentifier> GetUnmappedFileIdentifiers(string mediaType);
         List<BookFile> GetFilesWithBasePath(string path);
         List<BookFile> GetFilesWithBasePath(string path, string mediaType);
         HashSet<string> GetReplicaPathsWithBasePath(string path);
@@ -146,6 +148,24 @@ namespace NzbDrone.Core.MediaFiles
         {
             var builder = BuildUnmappedFilesBuilder(mediaType);
             return _database.Query<BookFile>(builder).ToList();
+        }
+
+        public List<UnmappedFileIdentifier> GetUnmappedFileIdentifiers(string mediaType)
+        {
+            // Deliberately Id + Path only. Deciding which files sit on a page needs
+            // nothing else, and the per-file metadata carried by a full BookFile row is
+            // what made loading every unmapped file at once exhaust the process.
+            var requestedMediaType = string.IsNullOrWhiteSpace(mediaType) ? null : mediaType;
+            var mediaTypeClause = requestedMediaType != null
+                ? @" AND bf.""MediaType"" = @mediaType"
+                : string.Empty;
+
+            using var conn = _database.OpenConnection();
+            return conn.Query<UnmappedFileIdentifier>(
+                @"SELECT bf.""Id"", bf.""Path""
+                  FROM ""BookFiles"" bf
+                  WHERE bf.""EditionId"" = 0" + mediaTypeClause + ";",
+                new { mediaType = requestedMediaType }).ToList();
         }
 
         public List<BookFile> GetUnmappedFiles(IEnumerable<int> ids, string mediaType)
