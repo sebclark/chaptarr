@@ -214,7 +214,7 @@ namespace Chaptarr.Api.V1.BookFiles
 
         [HttpGet("unmapped")]
         [Produces("application/json")]
-        public PagingResource<BookFileResource> GetUnmappedBookFiles([FromQuery] PagingRequestResource paging, string mediaType = null)
+        public UnmappedFilesPagingResource GetUnmappedBookFiles([FromQuery] PagingRequestResource paging, string mediaType = null)
         {
             // The unpaged route below loads every unmapped file - full rows, resources and
             // per-file metadata - to render one screen. On a library with tens of thousands
@@ -223,7 +223,7 @@ namespace Chaptarr.Api.V1.BookFiles
             // ever materialised: identifiers are cheap (id + path), and full rows are read
             // for one page of folders.
             var normalizedMediaType = MediaTypeParameterParser.NormalizeOptional(mediaType);
-            var pagingResource = new PagingResource<BookFileResource>(paging);
+            var pagingResource = new UnmappedFilesPagingResource(paging);
             var page = pagingResource.Page < 1 ? 1 : pagingResource.Page;
             var pageSize = pagingResource.PageSize < 1 ? 20 : pagingResource.PageSize;
 
@@ -238,6 +238,10 @@ namespace Chaptarr.Api.V1.BookFiles
             pagingResource.PageSize = pageSize;
             // Paging is by folder, so the total the client pages against is folders, not files.
             pagingResource.TotalRecords = selection.TotalFolders;
+            // The page header reports the whole library, not the page. Without this the
+            // count collapsed to the page size once paging landed ("20 files - 20 book
+            // groups" for a library of tens of thousands).
+            pagingResource.TotalFiles = identifiers.Count;
             pagingResource.Records = MapUnmappedResources(files);
 
             return pagingResource;

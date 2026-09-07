@@ -761,7 +761,8 @@ class UnmappedFilesTable extends Component {
       columns,
       page,
       totalPages,
-      totalRecords,
+      totalRecords: serverTotalRecords,
+      totalFiles: serverTotalFiles,
       onFirstPagePress,
       onPreviousPagePress,
       onNextPagePress,
@@ -787,8 +788,10 @@ class UnmappedFilesTable extends Component {
     const filteredItems = this.getFilteredItems();
 
     // Calculate stats for all items and filtered items
-    const totalFiles = items.length;
-    const totalBookUnits = this.getBookUnitCount(items);
+    // Library-wide totals come from the server: items is ONE PAGE now, so counting
+    // it made the header report the page size instead of the library.
+    const totalFiles = serverTotalFiles > 0 ? serverTotalFiles : items.length;
+    const totalBookUnits = serverTotalRecords > 0 ? serverTotalRecords : this.getBookUnitCount(items);
     const filteredFiles = filteredItems.length;
     const filteredBookUnits = this.getBookUnitCount(filteredItems);
 
@@ -953,7 +956,7 @@ class UnmappedFilesTable extends Component {
             <TablePager
               page={page}
               totalPages={totalPages}
-              totalRecords={totalRecords}
+              totalRecords={serverTotalRecords}
               isFetching={isFetching}
               onFirstPagePress={onFirstPagePress}
               onPreviousPagePress={onPreviousPagePress}
@@ -985,6 +988,7 @@ UnmappedFilesTable.propTypes = {
   page: PropTypes.number,
   totalPages: PropTypes.number,
   totalRecords: PropTypes.number,
+  totalFiles: PropTypes.number,
   onFirstPagePress: PropTypes.func.isRequired,
   onPreviousPagePress: PropTypes.func.isRequired,
   onNextPagePress: PropTypes.func.isRequired,
