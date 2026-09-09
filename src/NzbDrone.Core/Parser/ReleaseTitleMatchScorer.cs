@@ -886,6 +886,21 @@ namespace NzbDrone.Core.Parser
             AddTitleVariants(context.PrimaryVariants, primaryTitle);
             context.PrimaryTitle = primaryTitle;
 
+            // A duplicate catalogue row that carries its series in the title rejected
+            // every release for the book it names: "Old School: Diary of a Wimpy Kid
+            // (BK10)" hid releases that the plain "Old School" row accepted.
+            //
+            // Splitting on the colon and trying both halves is NOT the fix - the suite
+            // forbids it (should_not_accept_bare_split_prefix..., the Dune part-file
+            // case, marketing subtitles), because an arbitrary fragment is not evidence
+            // of anything. This removes only text that equals the book's OWN SeriesName,
+            // which is metadata rather than a guess, so a title whose decoration is not
+            // the series is left exactly as it was.
+            foreach (var seriesVariant in GetSeriesDecorationVariants(primaryTitle, book?.SeriesName))
+            {
+                AddTitleVariants(context.PrimaryVariants, seriesVariant);
+            }
+
             foreach (var variant in context.PrimaryVariants)
             {
                 AddTokens(context.PrefixAllowanceTokens, variant);
@@ -961,6 +976,52 @@ namespace NzbDrone.Core.Parser
             return GetSelectedEdition(book)?.Title;
         }
 
+
+        private static IEnumerable<string> GetSeriesDecorationVariants(string title, string seriesName)
+        {
+            if (string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(seriesName))
+            {
+                yield break;
+            }
+
+            var working = SeriesVolumeSuffixRegex.Replace(title, string.Empty).Trim();
+            var series = seriesName.Trim();
+
+            if (working.Length <= series.Length ||
+                working.IndexOf(series, StringComparison.OrdinalIgnoreCase) < 0)
+            {
+                yield break;
+            }
+
+            foreach (var separator in SeriesDecorationSeparators)
+            {
+                var prefix = series + separator;
+                if (working.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    var remainder = NormalizeExpandedVariant(working.Substring(prefix.Length));
+                    if (!string.IsNullOrWhiteSpace(remainder))
+                    {
+                        yield return remainder;
+                    }
+                }
+
+                var suffix = separator + series;
+                if (working.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+                {
+                    var head = NormalizeExpandedVariant(working.Substring(0, working.Length - suffix.Length));
+                    if (!string.IsNullOrWhiteSpace(head))
+                    {
+                        yield return head;
+                    }
+                }
+            }
+        }
+
+        private static readonly string[] SeriesDecorationSeparators = { ": ", " - ", ", " };
+
+        private static readonly Regex SeriesVolumeSuffixRegex = new Regex(
+            @"\s*[\(\[]\s*(?:book|bk|vol|volume|part|pt|no|#)?\s*\.?\s*\d+(?:\.\d+)?\s*[\)\]]\s*$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         private static void AddTitleVariants(List<string> variants, string title)
         {
