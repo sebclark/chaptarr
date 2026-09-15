@@ -5,6 +5,7 @@ using System.Linq;
 using Dapper;
 using Microsoft.Data.Sqlite;
 using NLog;
+using NzbDrone.Core.Books.Services;
 using NzbDrone.Core.Datastore;
 using System.Text.RegularExpressions;
 
@@ -626,10 +627,9 @@ namespace NzbDrone.Core.Books
                 return new List<BookFtsMatch>();
             }
 
-            var terms = tokens?
+            var terms = TextNormalizer.DropStopWordsForRecall(tokens?
                 .Where(token => !string.IsNullOrWhiteSpace(token) && IsValidFtsToken(token))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList() ?? new List<string>();
+                .Distinct(StringComparer.OrdinalIgnoreCase));
             if (terms.Count == 0)
             {
                 return new List<BookFtsMatch>();

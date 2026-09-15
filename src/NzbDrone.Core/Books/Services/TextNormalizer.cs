@@ -51,10 +51,26 @@ namespace NzbDrone.Core.Books.Services
                 return FilterTokens(tokens, new[] { "of", "and", "in", "to", "a", "an" });
 
             // Long titles: traditional stop words
-            return FilterTokens(tokens, new[]
-            {
-                "the", "a", "an", "of", "and", "in", "to", "for", "with", "by", "at", "on", "is", "are"
-            });
+            return FilterTokens(tokens, CommonStopWords);
+        }
+
+        private static readonly string[] CommonStopWords =
+        {
+            "the", "a", "an", "of", "and", "in", "to", "for", "with", "by", "at", "on", "is", "are"
+        };
+
+        private static readonly HashSet<string> CommonStopWordSet = new (CommonStopWords, StringComparer.OrdinalIgnoreCase);
+
+        // For OR'ed recall only. A stop word cannot be what finds the right book while a real word
+        // sits beside it - the right book matches the real word too - so it only widens the
+        // candidate set. In a 400k-edition library "the" alone matched 36% of titles and made each
+        // recall ~18x slower. Terms made up entirely of stop words are returned untouched, so a
+        // release offering nothing else still recalls something.
+        public static List<string> DropStopWordsForRecall(IEnumerable<string> terms)
+        {
+            var list = terms?.ToList() ?? new List<string>();
+            var significant = list.Where(term => !CommonStopWordSet.Contains(term)).ToList();
+            return significant.Count > 0 ? significant : list;
         }
 
         // Calculate required match count based on title length

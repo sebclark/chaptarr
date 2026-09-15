@@ -216,6 +216,94 @@ namespace Chaptarr.Core.Test.Books
             }
         }
 
+        [Test]
+        public void recall_should_not_let_a_stop_word_recall_every_title_that_contains_it()
+        {
+            // Recall ORs its terms, so "the" alone matched a third of a real library's editions
+            // and every release carrying it cost 3-5s of ts_rank over those rows. A stop word can
+            // never be what finds the right book while a real word sits beside it - the right book
+            // matches the real word too - so it only adds rows that are then thrown away.
+            WithRepository((repository, _) =>
+            {
+                var queried = new List<IReadOnlyList<string>>();
+                var recalled = repository.RecallBooks(
+                    null,
+                    new[] { "the", "boyfriend" },
+                    BookMediaType.Ebook,
+                    evt =>
+                    {
+                        if (evt.EventType == "query")
+                        {
+                            queried.Add(evt.Terms);
+                        }
+                    });
+
+                Assert.Multiple(() =>
+                {
+                    Assert.That(queried.Single(), Is.EqualTo(new[] { "boyfriend" }));
+                    Assert.That(recalled.Select(candidate => candidate.BookId), Is.EqualTo(new[] { 1 }),
+                        "'The Wife Upstairs' shares only 'the' with the release and must not be recalled");
+                });
+            });
+        }
+
+        [Test]
+        public void recall_should_keep_stop_words_when_they_are_all_the_release_offers()
+        {
+            WithRepository((repository, _) =>
+            {
+                var queried = new List<IReadOnlyList<string>>();
+                var recalled = repository.RecallBooks(
+                    null,
+                    new[] { "The", "of" },
+                    BookMediaType.Ebook,
+                    evt =>
+                    {
+                        if (evt.EventType == "query")
+                        {
+                            queried.Add(evt.Terms);
+                        }
+                    });
+
+                Assert.Multiple(() =>
+                {
+                    Assert.That(queried.Single(), Is.EqualTo(new[] { "The", "of" }));
+                    Assert.That(recalled.Select(candidate => candidate.BookId), Is.EquivalentTo(new[] { 1, 2 }));
+                });
+            });
+        }
+
+        private static void WithRepository(Action<EditionFtsRepository, string> body)
+        {
+            var databasePath = Path.Combine(TestContext.CurrentContext.WorkDirectory, $"staged_fts_stopwords_{Guid.NewGuid():N}.db");
+            var connectionString = new SqliteConnectionStringBuilder
+            {
+                DataSource = databasePath,
+                Mode = SqliteOpenMode.ReadWriteCreate,
+                Pooling = false
+            }.ToString();
+
+            try
+            {
+                SeedDatabase(connectionString);
+                var database = new Database("main", () =>
+                {
+                    var connection = new SqliteConnection(connectionString);
+                    connection.Open();
+                    return connection;
+                });
+
+                body(new EditionFtsRepository(new MainDatabase(database), LogManager.GetCurrentClassLogger()), connectionString);
+            }
+            finally
+            {
+                if (File.Exists(databasePath))
+                {
+                    File.Delete(databasePath);
+                }
+            }
+        }
+
         private static void SeedDatabase(string connectionString)
         {
             using var connection = new SqliteConnection(connectionString);
