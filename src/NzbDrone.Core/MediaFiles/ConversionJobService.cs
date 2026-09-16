@@ -19,6 +19,11 @@ namespace NzbDrone.Core.MediaFiles
     {
         int WorkerConcurrency { get; }
         ConversionJob Get(string downloadId);
+
+        // Every non-completed job keyed by download id, from ONE query. Callers overlaying a
+        // whole queue must use this instead of Get per item - see QueueService.
+        IReadOnlyDictionary<string, ConversionJob> GetNonCompletedByDownloadId() => null;
+
         ConversionJob Enqueue(ConversionJobRequest request);
         bool IsActive(string downloadId);
         bool Cancel(string downloadId);
@@ -70,6 +75,16 @@ namespace NzbDrone.Core.MediaFiles
         public ConversionJob Get(string downloadId)
         {
             return _repository.FindByDownloadId(downloadId);
+        }
+
+        public IReadOnlyDictionary<string, ConversionJob> GetNonCompletedByDownloadId()
+        {
+            // DownloadId is uniquely indexed and compared with SQL '=' by FindByDownloadId, so
+            // an ordinal key reproduces that lookup exactly.
+            return _repository.NonCompleted()
+                .Where(job => !string.IsNullOrWhiteSpace(job.DownloadId))
+                .GroupBy(job => job.DownloadId, StringComparer.Ordinal)
+                .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
         }
 
         public ConversionJob Enqueue(ConversionJobRequest request)

@@ -522,9 +522,25 @@ namespace NzbDrone.Core.Queue
                 return;
             }
 
+            // One read per rebuild. This runs on every TrackedDownloadUpdatedEvent over the WHOLE
+            // queue, so a query per item was N^2 per refresh: ~1,900 queue items produced billions
+            // of lookups against an empty ConversionJobs table and kept Postgres saturated.
+            var durableJobs = _conversionJobService?.GetNonCompletedByDownloadId();
+
             foreach (var item in queue)
             {
-                var durableJob = _conversionJobService?.Get(item.DownloadId);
+                ConversionJob durableJob;
+                if (durableJobs != null)
+                {
+                    durableJob = !string.IsNullOrWhiteSpace(item.DownloadId) && durableJobs.TryGetValue(item.DownloadId, out var batchedJob)
+                        ? batchedJob
+                        : null;
+                }
+                else
+                {
+                    durableJob = _conversionJobService?.Get(item.DownloadId);
+                }
+
                 if (durableJob != null && durableJob.Status != ConversionJobStatus.Completed)
                 {
                     item.ConversionStatus = GetConversionJobStatus(durableJob.Status);
