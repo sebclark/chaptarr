@@ -53,6 +53,41 @@ namespace Chaptarr.Core.Test.MediaFiles
         }
 
         [Test]
+        public void is_excluded_from_recall_should_drop_catalogue_noise_but_keep_identifying_fields()
+        {
+            // Whole-library recall ORs every token it is given. EPUB/PDF metadata carries dates,
+            // identifiers, publishers and subject lists that match thousands of unrelated rows;
+            // a real import sent 57 terms including a split GUID and took 4.5s per file.
+            foreach (var key in new[]
+                     {
+                         "publisher", "imprint", "source", "coverage", "subjects", "subject", "genres", "keywords", "tags",
+                         "date", "date_modification", "date_publication", "publish_date", "creation_date", "modification_date",
+                         "identifier_uuid", "identifier_isbn", "isbn", "asin", "producer", "creator"
+                     })
+            {
+                Assert.That(TagExclusionPolicy.IsExcludedFromRecall(key), Is.True, key);
+            }
+
+            foreach (var key in new[] { "title", "TITLE", "author", "authors", "all_authors", "ARTIST", "ALBUM", "ALBUMARTIST", "contributor_editor", "MP4:\u00a9nam" })
+            {
+                Assert.That(TagExclusionPolicy.IsExcludedFromRecall(key), Is.False, key);
+            }
+
+            // Anything already kept out of matching is kept out of recall too.
+            Assert.That(TagExclusionPolicy.IsExcludedFromRecall("comment"), Is.True);
+        }
+
+        [Test]
+        public void recall_exclusion_must_not_remove_scoring_evidence()
+        {
+            // Publisher is still read by the ebook publisher score and the stage-2 detail field;
+            // only the broad recall stops using it.
+            Assert.That(TagExclusionPolicy.IsExcludedFromMatching("publisher"), Is.False);
+            Assert.That(TagExclusionPolicy.IsExcludedFromMatching("date"), Is.False);
+            Assert.That(TagExclusionPolicy.IsExcludedFromMatching("identifier_uuid"), Is.False);
+        }
+
+        [Test]
         public void is_excluded_from_matching_should_cover_common_trash_fields()
         {
             Assert.That(TagExclusionPolicy.IsExcludedFromMatching("genre"), Is.True);

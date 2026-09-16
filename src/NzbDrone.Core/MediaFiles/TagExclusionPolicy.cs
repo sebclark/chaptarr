@@ -98,6 +98,47 @@ namespace NzbDrone.Core.MediaFiles
             return false;
         }
 
+        // Fields that stay available as SCORING evidence (the ebook publisher score and stage-2
+        // detail fields read publisher, for instance) but must not feed the library-wide recall.
+        // Recall ORs every token it is given across the whole catalogue, so catalogue metadata
+        // like this matches thousands of unrelated rows without ever being what identifies the
+        // book: a real EPUB sent 57 terms (publisher, split dates, a split UUID, subject lists)
+        // and took 4.5s per file.
+        private static readonly HashSet<string> RecallExclusionTagKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            // Publishing / catalogue metadata
+            "publisher", "imprint", "source", "coverage",
+
+            // Subject and keyword lists (EPUB/PDF spell these differently from "genre")
+            "subjects", "subject", "genres", "keywords", "tags",
+
+            // Dates
+            "date", "publish_date", "creation_date", "modification_date",
+
+            // Identifiers - ASINs are matched by their own lookup, not by title search
+            "isbn", "asin",
+
+            // PDF producing software, not the book's author
+            "producer", "creator"
+        };
+
+        public static bool IsExcludedFromRecall(string key)
+        {
+            if (IsExcludedFromMatching(key))
+            {
+                return true;
+            }
+
+            if (RecallExclusionTagKeys.Contains(key))
+            {
+                return true;
+            }
+
+            // EbookTagService emits one key per event / scheme: date_<event>, identifier_<scheme>.
+            return key.StartsWith("date_", StringComparison.OrdinalIgnoreCase) ||
+                   key.StartsWith("identifier_", StringComparison.OrdinalIgnoreCase);
+        }
+
         public static bool IsExtractionNoiseKey(string key)
         {
             if (string.IsNullOrWhiteSpace(key))

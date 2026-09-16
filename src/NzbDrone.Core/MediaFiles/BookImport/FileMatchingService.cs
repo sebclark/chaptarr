@@ -4598,7 +4598,17 @@ namespace NzbDrone.Core.MediaFiles.BookImport
             {
                 // Step 1: Extract matchable tags (excludes comments, trash, cover art, genre, etc.)
                 // Tokenize main tags (excluding comments)
-                mainTokens = TokenizeForHolyGrail(mainTags);
+                // Recall only: mainTags still flows unchanged into scoring and stage-2 field queries.
+                // Fall back to every tag when the recall-eligible ones yield nothing, so a file whose
+                // only evidence is (say) a publisher still gets a search.
+                mainTokens = TokenizeForHolyGrail(mainTags
+                    .Where(tag => !TagExclusionPolicy.IsExcludedFromRecall(tag.Key))
+                    .ToDictionary(tag => tag.Key, tag => tag.Value, StringComparer.OrdinalIgnoreCase));
+                if (mainTokens.Count == 0)
+                {
+                    mainTokens = TokenizeForHolyGrail(mainTags);
+                }
+
                 _logger.Debug("[HOLY-GRAIL] Main tokens: {0}", mainTokens.Count);
 
                 // Try FTS with main tags

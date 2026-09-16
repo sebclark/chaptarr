@@ -128,8 +128,11 @@ namespace Chaptarr.Core.Test.MediaFiles.BookImport
                     bool monitoredOnly = false)
                 {
                     RecallCalls++;
+                    RecalledTokens.Add(tokens?.ToList() ?? new List<string>());
                     return _recalls.Take(limit).ToList();
                 }
+
+                public List<List<string>> RecalledTokens { get; } = new();
 
                 public List<EditionFtsMatch> RankEditions(
                     IReadOnlyCollection<BookFtsMatch> recalledBooks,
@@ -720,6 +723,88 @@ namespace Chaptarr.Core.Test.MediaFiles.BookImport
 
             Assert.That(resultWithBrokenDiagnostics.MatchedFiles, Has.Length.EqualTo(1));
             Assert.That(resultWithBrokenDiagnostics.MatchedFiles[0].EditionId, Is.EqualTo(candidate.EditionId));
+        }
+
+        private static (FileMatchingService Service, RecordingStagedEditionFtsRepository Fts) BuildRecallCaptureService()
+        {
+            var logger = LogManager.GetCurrentClassLogger();
+            var stagedFts = new RecordingStagedEditionFtsRepository(
+                new[] { new BookFtsMatch { BookId = 301, AuthorId = 3, AuthorName = "Alexandre Dumas", BookTitle = "Louise de la Valliere", MatchScore = 10 } },
+                Array.Empty<EditionFtsMatch>());
+            var service = new FileMatchingService(
+                matchingLogger: new NullMatchingUploadLogger(),
+                v5MatchingService: null,
+                containmentValidator: new CountingContainmentValidator(new ContainmentValidator(new TagNormalizer(), logger)),
+                pendingAuthorImportService: null,
+                commandQueue: null,
+                authorFolderMatchingService: null,
+                rootFolderService: null,
+                configService: ConfigServiceTestProxy.Create(usePathAsTagsFallback: false),
+                authorService: new StubAuthorService(new Author { Id = 3, Name = "Alexandre Dumas" }),
+                eventAggregator: null,
+                authorLibraryService: null,
+                editionFtsRepository: stagedFts,
+                bookService: new StubBookService(new[] { new Book { Id = 301, AuthorId = 3, Title = "Louise de la Valliere", MediaType = BookMediaType.Ebook } }),
+                editionService: null,
+                editionRepository: null,
+                mediaInfoExtractor: null,
+                logger: logger);
+            return (service, stagedFts);
+        }
+
+        [Test]
+        public void embedded_tag_recall_should_leave_dates_identifiers_publishers_and_subjects_out_of_the_library_wide_search()
+        {
+            // Taken from a real slow-query log: this file's recall ORed 57 terms and took 4.5s.
+            var (service, stagedFts) = BuildRecallCaptureService();
+            var file = new DiscoveredFileWithMetadata
+            {
+                Path = "/ebooks/Alexandre Dumas/Louise de la Valliere/Louise de la Valliere.epub",
+                AllTags = new Dictionary<string, List<string>>
+                {
+                    ["title"] = new() { "Louise de la Valliere" },
+                    ["author"] = new() { "Alexandre Dumas" },
+                    ["publisher"] = new() { "Oxford University Press, USA" },
+                    ["date_modification"] = new() { "2009-02-10T08:00:00" },
+                    ["identifier_uuid"] = new() { "397cf4e5-b898-4088-b809-5df949ddca2e" },
+                    ["subjects"] = new() { "Adventure stories; Classic fiction; Historical" },
+                    ["coverage"] = new() { "New York, N.Y., U.S.A." }
+                }
+            };
+
+            service.HolyGrailMatchFile(file, BookMediaType.Ebook, restrictToAuthorId: null);
+
+            Assert.That(stagedFts.RecalledTokens, Is.Not.Empty, "the embedded-tag phase must still run a recall");
+            var terms = stagedFts.RecalledTokens[0];
+            Assert.Multiple(() =>
+            {
+                Assert.That(terms, Is.SupersetOf(new[] { "louise", "valliere", "alexandre", "dumas" }), "title and author terms must still reach recall");
+                Assert.That(terms, Has.None.EqualTo("oxford").And.None.EqualTo("press"), "publisher");
+                Assert.That(terms, Has.None.EqualTo("2009").And.None.EqualTo("10t08"), "date");
+                Assert.That(terms, Has.None.EqualTo("397cf4e5").And.None.EqualTo("5df949ddca2e"), "identifier");
+                Assert.That(terms, Has.None.EqualTo("adventure").And.None.EqualTo("historical"), "subjects");
+                Assert.That(terms, Has.None.EqualTo("york"), "coverage");
+            });
+        }
+
+        [Test]
+        public void embedded_tag_recall_should_fall_back_to_every_term_when_only_excluded_fields_exist()
+        {
+            var (service, stagedFts) = BuildRecallCaptureService();
+            var file = new DiscoveredFileWithMetadata
+            {
+                Path = "/ebooks/unknown/unknown.epub",
+                AllTags = new Dictionary<string, List<string>>
+                {
+                    ["publisher"] = new() { "Oxford University Press" },
+                    ["subjects"] = new() { "Louise de la Valliere" }
+                }
+            };
+
+            service.HolyGrailMatchFile(file, BookMediaType.Ebook, restrictToAuthorId: null);
+
+            Assert.That(stagedFts.RecalledTokens, Is.Not.Empty, "a file whose only evidence is excluded must not lose its recall entirely");
+            Assert.That(stagedFts.RecalledTokens[0], Is.SupersetOf(new[] { "oxford", "valliere" }));
         }
 
         [Test]
