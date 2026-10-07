@@ -158,6 +158,14 @@ namespace NzbDrone.Core.Jobs
                         TypeName = typeof(HousekeepingCommand).FullName
                     },
 
+                    // Nothing scheduled this, so the 'clean up recycle bin after N days' setting
+                    // never ran: the bin reached 386 GB on one install.
+                    new ScheduledTask
+                    {
+                        Interval = 24 * 60,
+                        TypeName = typeof(CleanUpRecycleBinCommand).FullName
+                    },
+
                     new ScheduledTask
                     {
                         Interval = 24 * 60,

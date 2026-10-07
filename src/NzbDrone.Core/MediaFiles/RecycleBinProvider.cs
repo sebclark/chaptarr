@@ -174,7 +174,24 @@ namespace NzbDrone.Core.MediaFiles
 
             foreach (var file in _diskProvider.GetFiles(_configService.RecycleBin, true))
             {
-                if (_diskProvider.FileGetLastWrite(file).AddDays(cleanupDays) > DateTime.UtcNow)
+                // A binned file can keep its original timestamp: DeleteFile stamps it with the
+                // current time but swallows any failure, and on one install 27,706 binned files
+                // still carried dates back to 2024 - so the first cleanup would have treated
+                // today's deletions as years old. Moving a file into a folder updates that
+                // folder's own timestamp without any call that can fail, so age by the later of
+                // the two. This can only delay a deletion, never bring one forward.
+                var lastWrite = _diskProvider.FileGetLastWrite(file);
+                var folder = Path.GetDirectoryName(file);
+                if (!string.IsNullOrEmpty(folder))
+                {
+                    var folderWrite = _diskProvider.FolderGetLastWrite(folder);
+                    if (folderWrite > lastWrite)
+                    {
+                        lastWrite = folderWrite;
+                    }
+                }
+
+                if (lastWrite.AddDays(cleanupDays) > DateTime.UtcNow)
                 {
                     _logger.Debug("File hasn't expired yet, skipping: {0}", file);
                     continue;
