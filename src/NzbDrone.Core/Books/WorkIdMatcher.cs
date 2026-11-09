@@ -1,9 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using NzbDrone.Common.Extensions;
-using NzbDrone.Core.MetadataSource;
-
 namespace NzbDrone.Core.Books
 {
     public static class WorkIdMatcher
@@ -30,15 +24,15 @@ namespace NzbDrone.Core.Books
                 return false;
             }
 
-            var leftIds = GetWorkProviderIds(left);
-            var rightIds = GetWorkProviderIds(right);
+            var leftIds = BookIdentity.GetStableWorkProviderIdentityTokens(left);
+            var rightIds = BookIdentity.GetStableWorkProviderIdentityTokens(right);
 
             if (leftIds.Count == 0 || rightIds.Count == 0)
             {
                 return false;
             }
 
-            return leftIds.Intersect(rightIds, StringComparer.OrdinalIgnoreCase).Any();
+            return leftIds.Overlaps(rightIds);
         }
 
         /// <summary>
@@ -66,8 +60,8 @@ namespace NzbDrone.Core.Books
                 return true;
             }
 
-            var leftIds = GetWorkProviderIds(left);
-            var rightIds = GetWorkProviderIds(right);
+            var leftIds = BookIdentity.GetStableWorkProviderIdentityTokens(left);
+            var rightIds = BookIdentity.GetStableWorkProviderIdentityTokens(right);
 
             // Both sides identified and not intersecting: genuinely different works.
             if (leftIds.Count > 0 && rightIds.Count > 0)
@@ -82,7 +76,7 @@ namespace NzbDrone.Core.Books
 
             var leftTitle = NormalizeTitle(left.Title);
             var rightTitle = NormalizeTitle(right.Title);
-            if (leftTitle.IsNullOrWhiteSpace() || rightTitle.IsNullOrWhiteSpace())
+            if (string.IsNullOrWhiteSpace(leftTitle) || string.IsNullOrWhiteSpace(rightTitle))
             {
                 return false;
             }
@@ -110,7 +104,7 @@ namespace NzbDrone.Core.Books
 
         private static bool IsSubtitleVariantOf(string shortTitle, string longTitle)
         {
-            if (shortTitle.IsNullOrWhiteSpace() || longTitle.IsNullOrWhiteSpace())
+            if (string.IsNullOrWhiteSpace(shortTitle) || string.IsNullOrWhiteSpace(longTitle))
             {
                 return false;
             }
@@ -122,7 +116,7 @@ namespace NzbDrone.Core.Books
             }
 
             var titleProper = NormalizeTitle(longTitle.Substring(0, colon));
-            if (titleProper.IsNullOrWhiteSpace() || titleProper != NormalizeTitle(shortTitle))
+            if (string.IsNullOrWhiteSpace(titleProper) || titleProper != NormalizeTitle(shortTitle))
             {
                 return false;
             }
@@ -155,7 +149,7 @@ namespace NzbDrone.Core.Books
 
         private static string NormalizeTitle(string title)
         {
-            if (title.IsNullOrWhiteSpace())
+            if (string.IsNullOrWhiteSpace(title))
             {
                 return string.Empty;
             }
@@ -201,64 +195,6 @@ namespace NzbDrone.Core.Books
             }
 
             return WorkIdMatches(left, right);
-        }
-
-        private static List<string> GetWorkProviderIds(Book book)
-        {
-            var ids = new List<string>();
-
-            AddWorkIdOrIgnore(ids, book?.HardcoverBookId, expectedPrefix: "hc");
-            AddWorkIdOrIgnore(ids, book?.GoodreadsWorkId, expectedPrefix: "gr");
-            AddWorkIdOrIgnore(ids, book?.OpenLibraryWorkId, expectedPrefix: "ol");
-
-            foreach (var providerId in book?.RemoteProviderIds ?? Enumerable.Empty<string>())
-            {
-                AddWorkIdOrIgnore(ids, providerId, expectedPrefix: null);
-            }
-
-            return ids
-                .Where(id => id.IsNotNullOrWhiteSpace())
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
-        }
-
-        private static void AddWorkIdOrIgnore(List<string> ids, string providerId, string expectedPrefix)
-        {
-            if (ids == null || providerId.IsNullOrWhiteSpace())
-            {
-                return;
-            }
-
-            string canonical;
-            try
-            {
-                canonical = ProviderIdHelper.Canonicalize(providerId.Trim(), expectedPrefix);
-            }
-            catch (Exception)
-            {
-                return;
-            }
-
-            if (canonical.IsNullOrWhiteSpace())
-            {
-                return;
-            }
-
-            var colonIndex = canonical.IndexOf(':');
-            if (colonIndex <= 0)
-            {
-                return;
-            }
-
-            var prefix = canonical.Substring(0, colonIndex);
-            if (!prefix.Equals("hc", StringComparison.OrdinalIgnoreCase) &&
-                !prefix.Equals("gr", StringComparison.OrdinalIgnoreCase) &&
-                !prefix.Equals("ol", StringComparison.OrdinalIgnoreCase))
-            {
-                return;
-            }
-
-            ids.Add(canonical);
         }
     }
 }

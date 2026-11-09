@@ -39,7 +39,7 @@ namespace Chaptarr.Core.Test.MediaFiles
             public int GetActiveCountUnderPath(string pathPrefix) => throw new NotImplementedException();
             public List<IngestQueueStatusCount> GetActiveStatusCountsUnderPath(string pathPrefix) => throw new NotImplementedException();
             public List<IngestQueueItem> GetActiveItemsUnderPath(string pathPrefix, int limit = 20) => throw new NotImplementedException();
-            public List<IngestQueueItem> GetActiveItems(int limit = 1000, int afterId = 0) => throw new NotImplementedException();
+            public List<IngestQueueItem> GetActiveItems(int limit = 1000, int afterId = 0, bool includeCompleted = false) => throw new NotImplementedException();
             public List<IngestQueueItem> GetActiveItemsForSweepUnderPath(string pathPrefix, int limit = 1000, int afterId = 0) => throw new NotImplementedException();
 
             public int RecoverStaleInProgress(string pathPrefix, int staleMinutes = 10) => throw new NotImplementedException();
@@ -64,7 +64,8 @@ namespace Chaptarr.Core.Test.MediaFiles
             public void PurgeOldCompleted(int daysToKeep = 14) => throw new NotImplementedException();
             public void RecordImportResult(int queueItemId, string path, ImportOutcome outcome, int? bookId = null, int? authorId = null, string quality = null, string errorMessage = null) => throw new NotImplementedException();
             public void CompleteItemWithResult(int queueItemId, string path, ImportOutcome outcome, int? bookId = null, int? authorId = null, string quality = null, string errorMessage = null, string statusError = null) => throw new NotImplementedException();
-            public List<ImportResult> GetImportResults(int? commandId = null) => throw new NotImplementedException();
+            public int PurgeCompletedResults(IEnumerable<int> resultIds) => throw new NotImplementedException();
+            public List<ImportResult> GetImportResults(IReadOnlyCollection<string> paths = null) => throw new NotImplementedException();
         }
 
         private class MediaFileRepositoryProxy : DispatchProxy
@@ -119,7 +120,7 @@ namespace Chaptarr.Core.Test.MediaFiles
         {
             var repo = DispatchProxy.Create<IMediaFileRepository, MediaFileRepositoryProxy>();
             var repoProxy = (MediaFileRepositoryProxy)(object)repo;
-            var sut = new MediaFileService(repo, new RecordingEventAggregator(), new RecordingIngestQueueRepository(), LogManager.GetLogger("test"));
+            var sut = new MediaFileService(repo, new RecordingEventAggregator(), new RecordingIngestQueueRepository(), null, LogManager.GetLogger("test"));
 
             sut.Handle(new AuthorDeletedEvent(TestAuthor(), deleteFiles: false, addImportListExclusion: false));
 
@@ -142,7 +143,7 @@ namespace Chaptarr.Core.Test.MediaFiles
             repoProxy.GetFilesByAuthorHandler = _ => new[] { linked };
 
             var events = new RecordingEventAggregator();
-            var sut = new MediaFileService(repo, events, new RecordingIngestQueueRepository(), LogManager.GetLogger("test"));
+            var sut = new MediaFileService(repo, events, new RecordingIngestQueueRepository(), null, LogManager.GetLogger("test"));
 
             sut.Handle(new AuthorDeletedEvent(TestAuthor(), deleteFiles: true, addImportListExclusion: false));
 
@@ -163,7 +164,7 @@ namespace Chaptarr.Core.Test.MediaFiles
                 path.StartsWith("/audiobooks") ? new[] { kept, removed } : Enumerable.Empty<BookFile>();
             repoProxy.GetFilesByAuthorHandler = _ => Enumerable.Empty<BookFile>();
 
-            var sut = new MediaFileService(repo, new RecordingEventAggregator(), new RecordingIngestQueueRepository(), LogManager.GetLogger("test"));
+            var sut = new MediaFileService(repo, new RecordingEventAggregator(), new RecordingIngestQueueRepository(), null, LogManager.GetLogger("test"));
 
             sut.Handle(new AuthorDeletedEvent(TestAuthor(), deleteFiles: true, addImportListExclusion: false, preserveRetainedFileHistory: true, retainedBookFileIds: new[] { 51 }));
 
@@ -182,7 +183,7 @@ namespace Chaptarr.Core.Test.MediaFiles
                 path.StartsWith("/audiobooks") ? new[] { file } : Enumerable.Empty<BookFile>();
             repoProxy.GetFilesByAuthorHandler = _ => new[] { file };
 
-            var sut = new MediaFileService(repo, new RecordingEventAggregator(), new RecordingIngestQueueRepository(), LogManager.GetLogger("test"));
+            var sut = new MediaFileService(repo, new RecordingEventAggregator(), new RecordingIngestQueueRepository(), null, LogManager.GetLogger("test"));
 
             sut.Handle(new AuthorDeletedEvent(TestAuthor(), deleteFiles: true, addImportListExclusion: false));
 

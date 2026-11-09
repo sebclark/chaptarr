@@ -8,10 +8,6 @@ namespace NzbDrone.Core.MediaFiles.BookImport
 {
     public sealed class MatchingContext
     {
-        // Manual preview needs an exact verdict for every file, so sibling
-        // files must not share cached negative results.
-        public bool SuppressNegativeUnitCache { get; set; }
-
         /// <summary>
         /// When true, call V5 to identify potential authors for unmatched files.
         /// Populates <see cref="UnmatchedFile.PotentialAuthors"/>.
@@ -57,6 +53,8 @@ namespace NzbDrone.Core.MediaFiles.BookImport
         /// falling back to general-purpose matching.
         /// </summary>
         public List<int> TargetBookIds { get; set; }
+        public bool AlternativeCopies { get; set; }
+        public Dictionary<int, int> TargetEditionIds { get; set; }
 
         /// <summary>
         /// Optional hard local retrieval boundary. Every identifier and FTS candidate must belong
@@ -198,6 +196,10 @@ namespace NzbDrone.Core.MediaFiles.BookImport
         public int EditionId { get; set; }
         public string MatchedVia { get; set; }
         public MatchProvenance Provenance { get; set; }
+        internal bool IsStandaloneRecording { get; set; }
+        internal int? EditionDurationSeconds { get; set; }
+        internal Books.Edition AlternativeCopyEdition { get; set; }
+        internal Dictionary<int, int> AlternativeCopyIncompatibleEditionIds { get; set; }
 
         // Untruncated decision-time identity proof. This is intentionally internal:
         // persisted/display provenance must never become matching authority.
